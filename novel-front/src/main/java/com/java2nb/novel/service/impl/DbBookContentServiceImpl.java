@@ -4,6 +4,7 @@ import com.java2nb.novel.entity.BookContent;
 import com.java2nb.novel.mapper.BookContentDynamicSqlSupport;
 import com.java2nb.novel.mapper.BookContentMapper;
 import com.java2nb.novel.service.BookContentService;
+import com.java2nb.novel.service.cache.ChapterContentCache;
 import lombok.RequiredArgsConstructor;
 import org.mybatis.dynamic.sql.render.RenderingStrategies;
 import org.mybatis.dynamic.sql.select.render.SelectStatementProvider;
@@ -19,15 +20,18 @@ import static org.mybatis.dynamic.sql.select.SelectDSL.select;
 public class DbBookContentServiceImpl implements BookContentService {
 
     private final BookContentMapper bookContentMapper;
+    private final ChapterContentCache chapterContentCache;
 
     @Override
     public BookContent queryBookContent(Long bookId, Long bookIndexId) {
-        SelectStatementProvider selectStatement = select(BookContentDynamicSqlSupport.id, BookContentDynamicSqlSupport.content)
+        return chapterContentCache.getOrLoad(bookId, bookIndexId, () -> {
+            SelectStatementProvider selectStatement = select(BookContentDynamicSqlSupport.id, BookContentDynamicSqlSupport.content)
                 .from(bookContent)
                 .where(BookContentDynamicSqlSupport.indexId, isEqualTo(bookIndexId))
                 .limit(1)
                 .build()
                 .render(RenderingStrategies.MYBATIS3);
-        return bookContentMapper.selectMany(selectStatement).get(0);
+            return bookContentMapper.selectMany(selectStatement).stream().findFirst().orElse(null);
+        });
     }
 }

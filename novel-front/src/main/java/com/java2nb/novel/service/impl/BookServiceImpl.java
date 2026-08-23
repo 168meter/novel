@@ -15,6 +15,7 @@ import com.java2nb.novel.service.AuthorService;
 import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.FileService;
 import com.java2nb.novel.service.LikeService;
+import com.java2nb.novel.service.cache.ChapterContentCache;
 import com.java2nb.novel.vo.*;
 import io.github.xxyopen.model.page.PageBean;
 import io.github.xxyopen.model.page.builder.pagehelper.PageBuilder;
@@ -87,6 +88,8 @@ public class BookServiceImpl implements BookService {
     private final BookAuthorMapper bookAuthorMapper;
 
     private final CacheService cacheService;
+
+    private final ChapterContentCache chapterContentCache;
 
     private final AuthorService authorService;
 
@@ -689,6 +692,7 @@ public class BookServiceImpl implements BookService {
                     bookContentMapper.delete(
                         deleteFrom(bookContent).where(BookContentDynamicSqlSupport.indexId, isEqualTo(indexId)).build()
                             .render(RenderingStrategies.MYBATIS3));
+                    chapterContentCache.evictAfterCommit(bookId, indexId);
                     //更新总字数
                     wordCount = wordCount - bookIndex.getWordCount();
                     //更新最新章节
@@ -866,6 +870,7 @@ public class BookServiceImpl implements BookService {
                             .equalTo(content)
                             .where(BookContentDynamicSqlSupport.indexId, isEqualTo(indexId))
                             .build().render(RenderingStrategies.MYBATIS3));
+                    chapterContentCache.evictAfterCommit(bookId, indexId);
 
                 }
             }
