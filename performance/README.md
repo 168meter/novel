@@ -54,3 +54,45 @@ docker exec novel-mysql mysql -uroot -p123456 novel_plus -e "SELECT book_id,id A
 ## 公平比较规则
 
 前后两轮必须保持同一台电脑、同一份数据库、同一个章节、同一 JVM 参数、同一并发阶梯和同一测试时长。访问量接口 `POST /book/addVisitCount` 不包含在章节正文读取基线里，将在后续写场景中单独测试。
+
+原项目的统一异常处理会把部分服务端异常渲染成 HTTP 200 的自定义 404 页面，所以不能只看状态码。当前 JMeter 计划还断言响应必须包含真实手机章节页标记 `id="contentIdHidden"`。正式报告中的 `Successful throughput` 会排除断言失败的快速错误页。
+
+## 缓存正确性与故障测试
+
+以下命令中的 ID 必须和前后压测使用同一行数据。只删除目标章节键，不要使用 `FLUSHALL`：
+
+```powershell
+$bookId = 123
+$bookIndexId = 456
+$chapterKey = "novel:chapter:v1:$bookId`:$bookIndexId"
+$chapterUrl = "http://127.0.0.1:8083/book/$bookId/$bookIndexId.html"
+$mobileHeaders = @{
+    'User-Agent' = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+}
+
+docker exec novel-redis redis-cli -a 123456 DEL $chapterKey
+$cold = Invoke-WebRequest $chapterUrl -Headers $mobileHeaders -UseBasicParsing
+$hot = Invoke-WebRequest $chapterUrl -Headers $mobileHeaders -UseBasicParsing
+$cold.Content.Contains('contentIdHidden')
+$hot.Content.Contains('contentIdHidden')
+docker exec novel-redis redis-cli -a 123456 TTL $chapterKey
+```
+
+两次页面标记都应为 `True`，TTL 应在 1–2100 秒之间。正常新写入的 TTL 是 1800–2100 秒；接近过期时看到更小的正数是正常现象。
+
+Redis 故障只做一个请求，不要在依赖不可用时继续高并发压测：
+
+```powershell
+try {
+    docker stop novel-redis
+    Measure-Command {
+        Invoke-WebRequest $chapterUrl -Headers $mobileHeaders -UseBasicParsing -TimeoutSec 8
+    }
+}
+finally {
+    docker start novel-redis
+    docker exec novel-redis redis-cli -a 123456 ping
+}
+```
+
+请求必须在有限时间内返回或失败，`finally` 必须把 Redis 恢复到 `PONG`。本次实测发现章节缓存能回源 MySQL，但旧的模板目录读取仍依赖 Redis，因此会快速返回自定义错误页；完整数据和结论见 `performance/results/chapter-performance-summary.md`。
