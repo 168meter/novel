@@ -22,3 +22,18 @@ thread:
     keep-alive-time: 10
     #队列大小
     queue-size: 100
+
+management:
+  server:
+    port: 8084
+    address: 127.0.0.1
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: novel-front
