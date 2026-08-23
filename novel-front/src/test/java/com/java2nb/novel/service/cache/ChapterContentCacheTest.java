@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -60,6 +61,13 @@ class ChapterContentCacheTest {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    @Test
+    void springConstructorIsExplicitlyAutowired() throws NoSuchMethodException {
+        assertThat(ChapterContentCache.class
+            .getConstructor(StringRedisTemplate.class, ObjectMapper.class)
+            .isAnnotationPresent(Autowired.class)).isTrue();
     }
 
     @Test

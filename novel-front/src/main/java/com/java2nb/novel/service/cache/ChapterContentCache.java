@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java2nb.novel.entity.BookContent;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -49,6 +50,7 @@ public class ChapterContentCache {
     private final LongConsumer sleeper;
     private final IntSupplier jitterSource;
 
+    @Autowired
     public ChapterContentCache(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this(
             redisTemplate,
