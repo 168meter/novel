@@ -5,4 +5,6 @@
 **/*.iml
 **/.DS_Store
 .worktrees/
+performance/results/raw/
+*.jtl
 
