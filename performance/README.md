@@ -96,3 +96,28 @@ finally {
 ```
 
 请求必须在有限时间内返回或失败，`finally` 必须把 Redis 恢复到 `PONG`。本次实测发现章节缓存能回源 MySQL，但旧的模板目录读取仍依赖 Redis，因此会快速返回自定义错误页；完整数据和结论见 `performance/results/chapter-performance-summary.md`。
+
+## 小说点击量写入基线
+
+点击量和章节正文必须分开测试。`performance/jmeter/book-visit-count.jmx` 只请求：
+
+```text
+POST /book/addVisitCount
+bookId=<真实小说ID>
+```
+
+它同时断言 HTTP 200 和响应中的 `"ok":true`。Kafka改造前后使用同一个脚本：
+
+```powershell
+& '.\performance\run-book-visit-stages.ps1' `
+  -BookId 2055879962859147264 `
+  -Label 'before-kafka' `
+  -DurationSeconds 60
+
+& '.\performance\run-book-visit-stages.ps1' `
+  -BookId 2055879962859147264 `
+  -Label 'after-kafka' `
+  -DurationSeconds 60
+```
+
+脚本禁止覆盖已有标签目录。正式比较需要记录 HTTP 成功数、接口P99、Kafka确认成功数、最终数据库增量、MySQL实际UPDATE数量和消费者Lag，不能只比较接口表面QPS。
