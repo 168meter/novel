@@ -5,6 +5,7 @@ import com.java2nb.novel.event.BookVisitEvent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -17,11 +18,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class BookVisitEventPublisher {
 
+    private static final long FAILURE_LOG_INTERVAL = 1000L;
     private final KafkaTemplate<Long, BookVisitEvent> kafkaTemplate;
     private final BookVisitKafkaProperties properties;
     private final Clock clock;
     private final Counter successCounter;
     private final Counter failedCounter;
+    private final AtomicLong failureCount = new AtomicLong();
 
     public BookVisitEventPublisher(
         KafkaTemplate<Long, BookVisitEvent> kafkaTemplate,
@@ -46,15 +49,20 @@ public class BookVisitEventPublisher {
                     if (failure == null) {
                         successCounter.increment();
                     } else {
-                        failedCounter.increment();
-                        log.warn("Failed to publish book visit event bookId={} eventId={}",
-                            bookId, event.eventId(), failure);
+                        recordFailure(bookId, event, failure);
                     }
                 });
         } catch (KafkaException failure) {
-            failedCounter.increment();
-            log.warn("Failed to start publishing book visit event bookId={} eventId={}",
-                bookId, event.eventId(), failure);
+            recordFailure(bookId, event, failure);
+        }
+    }
+
+    private void recordFailure(Long bookId, BookVisitEvent event, Throwable failure) {
+        failedCounter.increment();
+        long totalFailures = failureCount.incrementAndGet();
+        if (totalFailures == 1L || totalFailures % FAILURE_LOG_INTERVAL == 0L) {
+            log.warn("Kafka book visit publish failures={} latestBookId={} latestEventId={}",
+                totalFailures, bookId, event.eventId(), failure);
         }
     }
 }
