@@ -15,7 +15,7 @@ public interface FrontBookMapper extends BookMapper {
 
     List<BookVO> searchByPage(BookSpVO params);
 
-    void addVisitCount(@Param("bookId") Long bookId, @Param("visitCount") Integer visitCount);
+    void addVisitCount(@Param("bookId") Long bookId, @Param("visitCount") Long visitCount);
 
     List<Book> listRecBookByCatId(@Param("catId") Integer catId);
 

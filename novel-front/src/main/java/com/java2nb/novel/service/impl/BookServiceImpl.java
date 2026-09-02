@@ -363,7 +363,7 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public void addVisitCount(Long bookId, Integer visitCount) {
-        bookMapper.addVisitCount(bookId, visitCount);
+        bookMapper.addVisitCount(bookId, visitCount.longValue());
     }
 
     @Override
