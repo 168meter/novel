@@ -4,6 +4,7 @@ import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.core.utils.IpUtil;
 import com.java2nb.novel.entity.*;
+import com.java2nb.novel.messaging.BookVisitEventPublisher;
 import com.java2nb.novel.service.BookContentService;
 import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.IpLocationService;
@@ -38,6 +39,8 @@ public class BookController extends BaseController {
     private final IpLocationService ipLocationService;
 
     private final LikeService likeService;
+
+    private final BookVisitEventPublisher bookVisitEventPublisher;
 
     /**
      * 查询首页小说设置列表数据
@@ -111,7 +114,7 @@ public class BookController extends BaseController {
      */
     @PostMapping("addVisitCount")
     public RestResult<Void> addVisitCount(Long bookId) {
-        bookService.addVisitCount(bookId, 1);
+        bookVisitEventPublisher.publish(bookId);
         return RestResult.ok();
     }
 
