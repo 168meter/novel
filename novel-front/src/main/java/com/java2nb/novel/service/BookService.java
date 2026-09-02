@@ -95,6 +95,14 @@ public interface BookService {
     Long queryNextBookIndexId(Long bookId, Integer indexNum);
 
     /**
+     * 一次查询上一章和下一章目录ID
+     * @param bookId 书籍ID
+     * @param indexNum 当前目录号
+     * @return 相邻章节导航，没有对应章节时ID为0
+     */
+    BookIndexNavigationVO queryBookIndexNavigation(Long bookId, Integer indexNum);
+
+    /**
      * 查询章节内容
      * @param bookIndexId 目录ID
      * @return 书籍内容
