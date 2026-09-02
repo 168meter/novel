@@ -63,7 +63,75 @@ load to 200 threads does not increase capacity; throughput falls to 510.62 req/s
 rises from 71 ms to 478 ms. The extra requests are waiting on the same hot database row rather
 than producing useful throughput.
 
-## After Kafka
+## Kafka integration and failure evidence
+
+Test date: 2026-09-02. The checks used the same book, the local three-container
+Compose environment, and the running novel-front process. No check reset the
+book's existing visit count.
+
+### Concurrent functional check
+
+check-book-visit-kafka.ps1 sent 1,000 requests in bounded batches of 100.
+MySQL general logging was enabled only for the request window. Prepared statements
+were counted as command_type='Execute', and the increment values inside those
+statements were summed independently.
+
+| Check | Result |
+|---|---:|
+| Initial visit_count | 176,553 |
+| HTTP accepted | 1,000 |
+| Producer-confirmed successes | 1,000 |
+| Producer failures | 0 |
+| Final visit_count | 177,553 |
+| Database increment | 1,000 |
+| Consumer lag after drain | 0 |
+| Drain time | 2,262 ms |
+| Physical increment UPDATEs | 20 |
+| Sum of all SQL increment deltas | 1,000 |
+| SQL reduction against one UPDATE per request | 98.0% |
+
+The important result is not merely that the endpoint returned quickly. Three
+independent totals agree: producer confirmations, database delta, and summed SQL
+deltas are all 1,000. At the same time, only 20 hot-row UPDATEs were executed.
+
+### MySQL outage and recovery
+
+MySQL was stopped, 100 concurrent visits were sent, and MySQL was restarted within
+the configured finite retry window.
+
+| Check | Result |
+|---|---:|
+| HTTP accepted while MySQL was down | 100 |
+| Producer-confirmed successes | 100 |
+| Consumer lag while MySQL was down | 100 |
+| DLT records during outage | 0 |
+| Database increment after recovery | 100 |
+| Final consumer lag | 0 |
+| MySQL health after recovery | healthy |
+
+This proves the HTTP/Tomcat thread does not wait for MySQL and Kafka retains the
+work until the database can commit it.
+
+### Kafka outage boundary
+
+With only Kafka stopped, a real mobile chapter page still returned the
+contentIdHidden marker in 578 ms. Ten visit requests returned in 26 ms total,
+but producer successes increased by 0, failures increased by 10, and MySQL did not
+change. This is deliberate: the service exposes producer failure metrics and does
+not silently fall back to the original synchronous hot-row UPDATE.
+
+### Dead-letter isolation
+
+One JSON event with bookId=0 increased the DLT end offset from 0 to 1. A valid
+event published immediately afterward increased the target book by 1, and final
+consumer lag was 0. The invalid event therefore did not poison later traffic.
+
+These tests demonstrate at-least-once processing, not exactly-once processing.
+A process crash after the database commit but before the Kafka offset commit can
+still replay an increment. That small duplicate-count window is accepted for this
+non-financial popularity counter.
+
+## After Kafka benchmark
 
 This section will be filled only after the approved Kafka implementation runs the exact same
 JMeter plan, book ID, thread stages, duration, JVM arguments, and machine. The comparison must

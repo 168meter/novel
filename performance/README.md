@@ -121,3 +121,39 @@ bookId=<真实小说ID>
 ```
 
 脚本禁止覆盖已有标签目录。正式比较需要记录 HTTP 成功数、接口P99、Kafka确认成功数、最终数据库增量、MySQL实际UPDATE数量和消费者Lag，不能只比较接口表面QPS。
+
+## Kafka 点击量链路验收
+
+先确认 MySQL、Redis、Kafka 都健康，并启动 novel-front：
+
+    docker compose -f '.\compose.local.yml' up -d
+    docker compose -f '.\compose.local.yml' ps
+
+用下面的脚本做一次不会重置原数据的功能检查。它分批并发发送请求，默认每批最多
+100 个；随后等待 Kafka Lag 清零，并核对数据库增量与生产者确认成功数完全一致：
+
+    & '.\performance\check-book-visit-kafka.ps1' -BookId 2055879962859147264 -RequestCount 1000 -MaxConcurrency 100
+
+输出中的指标含义：
+
+- HttpAccepted：接口已经接收的请求数，不代表 Kafka 一定写入成功。
+- ProducerSuccesses/ProducerFailures：Kafka 生产者的最终确认结果。
+- FinalDelta：MySQL 中点击量的实际增量，必须等于 ProducerSuccesses。
+- ConsumerLag：消费者尚未完成的消息数，验收结束必须是 0。
+- DrainMilliseconds：请求发完后，消息落库并清空 Lag 所花的时间。
+
+常用观察命令：
+
+    docker exec novel-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic novel-book-visit-v1
+    docker exec novel-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group novel-book-visit-writer-v1
+    docker exec novel-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic novel-book-visit-dlt --from-beginning
+
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.send'
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.batch_size'
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.db_updates'
+
+本地故障测试只停止单个容器，并始终用 finally 恢复。MySQL 停机时，已确认的
+Kafka 消息应形成 Lag，MySQL 恢复后再补写；Kafka 停机时点击接口不会同步回退写
+MySQL，生产失败由 result=failed 指标暴露。非法事件进入 novel-book-visit-dlt，
+后续合法事件仍可消费。具体实测数字见
+performance/results/book-visit-kafka-summary.md。
