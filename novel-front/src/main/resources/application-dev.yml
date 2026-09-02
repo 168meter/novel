@@ -1,6 +1,39 @@
 spring:
   config:
     import: classpath:application-common-dev.yml
+  kafka:
+    bootstrap-servers: 127.0.0.1:9092
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.LongSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.block.ms: 500
+        request.timeout.ms: 1000
+        delivery.timeout.ms: 3000
+    consumer:
+      enable-auto-commit: false
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      max-poll-records: 500
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.LongDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: com.java2nb.novel.event
+        spring.json.value.default.type: com.java2nb.novel.event.BookVisitEvent
+        spring.json.use.type.headers: false
+    listener:
+      type: batch
+      ack-mode: batch
+
+novel:
+  kafka:
+    book-visit:
+      topic: novel-book-visit-v1
+      dlt-topic: novel-book-visit-dlt
+      group-id: novel-book-visit-writer-v1
+      max-poll-records: 500
 
 
 pic:
