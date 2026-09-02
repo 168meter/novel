@@ -133,7 +133,77 @@ non-financial popularity counter.
 
 ## After Kafka benchmark
 
-This section will be filled only after the approved Kafka implementation runs the exact same
-JMeter plan, book ID, thread stages, duration, JVM arguments, and machine. The comparison must
-include producer-confirmed messages, final database increment, UPDATE count, maximum consumer
-lag, and drain time; HTTP acceptance alone is not sufficient evidence.
+Test date: 2026-09-02. Raw JTL and HTML reports are under
+performance/results/raw/book-visit-after-kafka/ and are intentionally ignored by Git.
+
+| Threads | Samples | Throughput req/s | Average ms | P95 ms | P99 ms | JMeter errors | Error % |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 105,076 | 1,753.46 | 0.51 | 1 | 1 | 0 | 0.0000 |
+| 10 | 1,059,669 | 17,682.07 | 0.52 | 1 | 1 | 3 | 0.0003 |
+| 30 | 934,830 | 15,600.26 | 1.79 | 5 | 16 | 60,068 | 6.4256 |
+| 50 | 1,197,452 | 19,975.18 | 2.26 | 31 | 43 | 27,652 | 2.3092 |
+| 100 | 1,022,475 | 17,058.59 | 4.79 | 28 | 46 | 55,026 | 5.3816 |
+| 200 | 1,050,980 | 17,529.77 | 8.38 | 119 | 129 | 47,780 | 4.5462 |
+
+Every JMeter error was a load-generator-side Windows socket error:
+java.net.BindException: Address already in use: getsockopt. No failed sample
+contained an application HTTP 500 response. The higher-thread rows therefore show
+that this one-machine test reached a client networking limit; they are not a clean
+measurement of the server's absolute maximum capacity.
+
+### End-to-end totals
+
+| Check | Result |
+|---|---:|
+| Total JMeter samples including warm-up | 5,384,000 |
+| Requests that reached the application successfully | 5,193,471 |
+| Kafka producer-confirmed successes | 5,068,377 |
+| Kafka producer failures/timeouts | 125,094 |
+| Producer-confirmed rate among reached requests | 97.5905% |
+| Initial visit_count | 177,654 |
+| Final visit_count after lag drained | 5,246,511 |
+| Database increment | 5,068,857 |
+| Database increment above confirmed successes | 480 |
+| Consumer database UPDATE count | 18,623 |
+| SQL reduction versus one UPDATE per increment | 99.6326% |
+| Maximum observed consumer lag | 1,965,279 |
+| Final consumer lag | 0 |
+| Approximate post-load drain time | 190 seconds |
+
+The producer outcomes add up exactly to the requests that reached the application:
+5,068,377 + 125,094 = 5,193,471. HTTP acceptance therefore did not hide missing
+producer callbacks.
+
+The database ended 480 above the producer-confirmed success count. Topic offsets and
+consumer metrics did not show 480 duplicate consumptions. The most likely explanation
+is an acknowledgement ambiguity under the deliberately short 3-second producer delivery
+timeout: 480 sends completed to the broker but their client futures reported a timeout.
+This is an inference from the three counters, not an exactly-once guarantee. It reinforces
+why popularity counts may tolerate small over-counting and why financial writes need an
+outbox/idempotency design.
+
+The consumer database-update metric increased by 18,623 for the benchmark. At the measured
+ratio, 10,000 persisted clicks require about 37 UPDATE statements instead of 10,000.
+The earlier bounded 1,000-click burst used 20 UPDATEs; sustained traffic produces fuller
+500-record consumer batches and a higher reduction.
+
+### Before/after interpretation
+
+At one thread, throughput rose from 209.14 to 1,753.46 req/s (8.38x) while P99 fell
+from 8 ms to 1 ms. The synchronous version peaked at 550.60 req/s at 30 threads because
+each request locked and updated the same MySQL row. The Kafka version reached roughly
+20,000 req/s in this local test before the load generator and single broker became the
+visible limits.
+
+This is not unlimited capacity:
+
+- A single hot book key goes to one Kafka partition to preserve per-book ordering.
+- Maximum lag reached nearly two million and needed about 190 seconds to drain.
+- 125,094 sends exceeded the intentionally short local producer timeout.
+- The benchmark ran with verbose MyBatis/ShardingSphere SQL logging, which also consumed
+  substantial console I/O.
+- Failed producer sends are counted and are not synchronously written to MySQL.
+
+The code review following this run added warning-rate limiting: every send failure still
+increments the metric, but only the first and every 1,000th failure emits a full WARN.
+This prevents another failure storm from generating hundreds of megabytes of logs.

@@ -121,3 +121,9 @@ dependency is outside the chapter-cache boundary and is the next resilience task
 An actual author-data mutation was not performed against the shared local dataset. Cache
 deletion timing is covered by the transaction synchronization tests; an authenticated
 author update smoke test remains required before production deployment.
+
+## Separate visit-write optimization
+
+Chapter reads and popularity-counter writes use different bottlenecks and are not mixed in
+one throughput claim. The Kafka visit aggregation results and failure boundaries are recorded
+in performance/results/book-visit-kafka-summary.md.

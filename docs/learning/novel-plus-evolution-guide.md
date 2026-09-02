@@ -179,7 +179,7 @@ Tomcat线程负责接收HTTP请求并调用Controller。原代码又把书籍、
 
 ## 8. 第四阶段：上下章两次SQL合并成一次SQL
 
-这是当前尚未提交的改动。
+这部分已提交为独立 Git 检查点，可与 Kafka 改动分开查看。
 
 | 位置 | 作用 |
 |---|---|
@@ -215,10 +215,10 @@ Tomcat线程负责接收HTTP请求并调用Controller。原代码又把书籍、
 最终Maven测试：
 
 - `novel-common`：2个测试通过。
-- `novel-front`：17个测试通过。
+- `novel-front`：34个测试通过（加上novel-common共36个）。
 - 失败0、错误0。
 - `git diff --check` 无格式错误。
-- 独立代码审查无严重或重要问题，可以合并。
+- 代码审查发现Kafka失败逐条打印WARN会产生日志风暴；已按TDD改为首条及每1000条告警一次，指标仍逐条计数。
 - 次要测试建议：后续补VIP章节的匿名、已购买、未购买场景，并明确断言新导航方法只调用一次、旧上下章方法不再调用。
 
 ## 10. 如何自己重新验证
@@ -250,7 +250,7 @@ mvn -pl novel-front -DskipTests '-Dspring-boot.run.jvmArguments=-XX:TieredStopAt
 
 5. 比较成功吞吐、P99和错误率。不要只看JMeter显示的总吞吐。
 
-## 11. 下一步：Kafka异步聚合小说点击量
+## 11. 第五阶段：Kafka异步聚合小说点击量
 
 已确认下一阶段让Kafka处理 `POST /book/addVisitCount`：请求只发送点击事件，消费者批量拉取并按 `bookId` 求和，再执行 `visit_count = visit_count + delta`。目标是把热门小说的大量同步更新变成少量聚合SQL。
 
@@ -264,3 +264,98 @@ mvn -pl novel-front -DskipTests '-Dspring-boot.run.jvmArguments=-XX:TieredStopAt
 - 第一版不增加Redis计数层，不增加精确去重表，不处理订单类强一致业务。
 
 正式设计：`docs/superpowers/specs/2026-09-02-kafka-book-visit-design.md`。
+
+上面的边界已经实现并完成真实 Docker 故障测试和 JMeter 对比，不再是待办方案。
+
+### 11.1 用最短的话理解 Kafka
+
+- Broker：Kafka 服务本身，本地就是 novel-kafka 容器。
+- Topic：消息队列的名字，本项目是 novel-book-visit-v1。
+- Partition：Topic 内的有序分片。同一 bookId 用作 key，所以同一本书进入同一分区。
+- Offset：消息在分区中的位置，消费者提交 offset 表示此前消息已处理。
+- Producer：BookVisitEventPublisher，把一次点击发送到 Kafka。
+- Consumer group：novel-book-visit-writer-v1；同组消费者分工处理分区。
+- Lag：Topic 最新 offset 减去已提交 offset，即尚未完成的消息数。
+- DLT：死信 Topic。格式非法且重试无意义的消息进入 novel-book-visit-dlt。
+
+完整数据流：
+
+    浏览器 POST /book/addVisitCount
+      -> BookController
+      -> BookVisitEventPublisher
+      -> novel-book-visit-v1
+      -> BookVisitEventConsumer（最多拉取500条）
+      -> BookVisitBatchAggregator（按bookId求和）
+      -> BookVisitBatchWriter（事务）
+      -> UPDATE book SET visit_count = visit_count + delta
+
+Tomcat 线程只负责把消息交给 Kafka 生产者，不再等待热门 book 行完成更新。数据库
+更新转移到 Kafka 消费线程中，并把同一本书的一批点击合成一个 delta。
+
+### 11.2 具体代码位置
+
+| 位置 | 学习重点 |
+|---|---|
+| compose.local.yml | MySQL、Redis、Kafka 4.3.1 KRaft 三容器 |
+| novel-front/src/main/resources/application-dev.yml | producer/consumer、序列化、批消费、超时 |
+| event/BookVisitEvent.java | 带 eventId、版本和时间的消息契约 |
+| config/BookVisitKafkaProperties.java | Topic、DLT、Group、批大小绑定 |
+| config/BookVisitKafkaConfig.java | Topic 创建、有限重试、DLT 路由 |
+| messaging/BookVisitEventPublisher.java | 异步发送、成功/失败指标、失败日志限流 |
+| controller/BookController.java | 原同步 SQL 入口改为 publish |
+| messaging/BookVisitBatchAggregator.java | 校验并按 bookId 汇总 delta |
+| messaging/BookVisitBatchWriter.java | 一个 Kafka 批次的数据库事务边界 |
+| messaging/BookVisitEventConsumer.java | 批监听、聚合、写入和消费指标 |
+| mapper/FrontBookMapper.java | Long 类型增量接口 |
+| resources/mybatis/mapping/BookMapper.xml | 安全参数绑定的原子加法 SQL |
+| messaging 和 config 下对应 Test | 发布、聚合、事务、消费、重试与 DLT 单测 |
+| performance/check-book-visit-kafka.ps1 | 不重置数据的端到端正确性检查 |
+| performance/jmeter/book-visit-count.jmx | 前后完全相同的点击压测计划 |
+| performance/results/book-visit-kafka-summary.md | 所有实测数字和限制 |
+
+### 11.3 实测结果
+
+| 指标 | 同步 MySQL | Kafka 聚合 |
+|---|---:|---:|
+| 1线程吞吐 | 209.14 req/s | 1,753.46 req/s |
+| 1线程P99 | 8 ms | 1 ms |
+| 局部1000点击SQL | 1000 | 20 |
+| 完整压测数据库UPDATE | 每次点击一条 | 18,623 |
+| SQL减少 | 0% | 99.6326% |
+| 峰值Lag | 不适用 | 1,965,279 |
+| 压测后排空时间 | 不适用 | 约190秒 |
+
+按完整压测比例计算，10,000 次计入数据库的点击约变成 37 条 UPDATE，而不是
+10,000 条。含金量就在这里：接口线程不争抢同一 MySQL 热行，数据库的写锁和网络
+往返减少约两个数量级。
+
+### 11.4 故障边界
+
+- MySQL停机：100个请求全部由Kafka确认，Lag变成100；MySQL恢复后增量补齐100，
+  Lag回到0，没有进入DLT。
+- Kafka停机：真实章节页仍在578 ms内读取成功；10个点击请求没有回退写MySQL，
+  生产失败指标增加10。
+- 非法消息：bookId=0 的事件进入DLT，随后合法事件仍正常加1。
+- 完整高压：125,094个发送超过本地3秒producer超时；另有480个发送虽然客户端
+  报超时但最终出现在Broker并计入数据库。这是确认结果不确定性，不是精确一次。
+- 这是允许近似的热度计数。订单、余额等业务不能照搬，必须使用Outbox、幂等键或
+  去重表解决强一致问题。
+
+压测还暴露了两个新瓶颈：同一热门bookId只能使用一个分区保持顺序；本机JMeter
+在约两万请求每秒附近出现Windows临时端口耗尽。因此当前结果不能解释为无限并发。
+
+### 11.5 自己观察
+
+    docker compose -f '.\compose.local.yml' ps
+    docker exec novel-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic novel-book-visit-v1
+    docker exec novel-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group novel-book-visit-writer-v1
+    docker exec novel-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic novel-book-visit-dlt --from-beginning
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.send'
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.batch_size'
+    Invoke-RestMethod 'http://127.0.0.1:8084/actuator/metrics/novel.book.visit.kafka.db_updates'
+    & '.\performance\check-book-visit-kafka.ps1' -BookId 2055879962859147264 -RequestCount 1000 -MaxConcurrency 100
+
+正式设计和实施步骤分别保存在：
+
+- docs/superpowers/specs/2026-09-02-kafka-book-visit-design.md
+- docs/superpowers/plans/2026-09-02-kafka-book-visit.md
