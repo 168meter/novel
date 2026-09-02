@@ -1,5 +1,8 @@
 package com.java2nb.novel.messaging;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
 import com.java2nb.novel.config.BookVisitKafkaProperties;
 import com.java2nb.novel.event.BookVisitEvent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -10,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.kafka.common.KafkaException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 
@@ -81,6 +85,32 @@ class BookVisitEventPublisherTest {
 
         assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count())
             .isEqualTo(1);
+    }
+
+    @Test
+    void rateLimitsWarningsButCountsEverySendFailure() {
+        when(kafkaTemplate.send(eq("visit-topic"), eq(42L), any(BookVisitEvent.class)))
+            .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker overloaded")));
+        Logger logger = (Logger) LoggerFactory.getLogger(BookVisitEventPublisher.class);
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            for (int failure = 0; failure < 1001; failure++) {
+                publisher.publish(42L);
+            }
+
+            assertThat(registry.counter(
+                "novel.book.visit.kafka.send", "result", "failed").count())
+                .isEqualTo(1001);
+            assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN)
+                .hasSize(2);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
