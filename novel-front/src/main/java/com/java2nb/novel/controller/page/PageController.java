@@ -6,6 +6,7 @@ import com.java2nb.novel.core.utils.ThreadLocalUtil;
 import com.java2nb.novel.entity.*;
 import com.java2nb.novel.service.*;
 import com.java2nb.novel.vo.BookCommentVO;
+import com.java2nb.novel.vo.BookIndexNavigationVO;
 import com.java2nb.novel.vo.BookSettingVO;
 import io.github.xxyopen.model.page.PageBean;
 import jakarta.servlet.http.HttpServletRequest;
@@ -241,65 +242,42 @@ public class PageController extends BaseController {
             return bookIndex;
         }, threadPoolExecutor);
 
-        //加载小说上一章节信息线程，该线程在加载小说章节信息线程执行完毕后才执行
-        CompletableFuture<Long> preBookIndexIdCompletableFuture = bookIndexCompletableFuture.thenApplyAsync(
+        //章节信息加载完毕后，用一个聚合任务完成页面剩余数据，避免一次完成触发四个新任务
+        CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = bookIndexCompletableFuture.thenApplyAsync(
             (bookIndex) -> {
-                //查询上一章节目录ID
-                Long preBookIndexId = bookService.queryPreBookIndexId(bookId, bookIndex.getIndexNum());
-                log.debug("加载小说上一章节信息线程结束");
-                return preBookIndexId;
-            }, threadPoolExecutor);
-
-        //加载小说下一章节信息线程，该线程在加载小说章节信息线程执行完毕后才执行
-        CompletableFuture<Long> nextBookIndexIdCompletableFuture = bookIndexCompletableFuture.thenApplyAsync(
-            (bookIndex) -> {
-                //查询下一章目录ID
-                Long nextBookIndexId = bookService.queryNextBookIndexId(bookId, bookIndex.getIndexNum());
-                log.debug("加载小说下一章节信息线程结束");
-                return nextBookIndexId;
-            }, threadPoolExecutor);
-
-        //加载小说内容信息线程，该线程在加载小说章节信息线程执行完毕后才执行
-        CompletableFuture<BookContent> bookContentCompletableFuture = bookIndexCompletableFuture.thenApplyAsync(
-            (bookIndex) -> {
-                //查询内容
+                BookIndexNavigationVO navigation =
+                    bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
                 BookContent bookContent = bookContentServiceMap.get(bookIndex.getStorageType())
                     .queryBookContent(bookId, bookIndexId);
-                log.debug("加载小说内容信息线程结束");
-                return bookContent;
+
+                boolean needBuy = false;
+                if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
+                    UserDetails user = getUserDetails(request);
+                    if (user == null) {
+                        needBuy = true;
+                    } else {
+                        needBuy = !userService.queryIsBuyBookIndex(user.getId(), bookIndexId);
+                    }
+                }
+
+                log.debug("加载章节页面聚合数据线程结束");
+                return new ChapterPageData(navigation.getPreBookIndexId(), navigation.getNextBookIndexId(),
+                    bookContent, needBuy);
             }, threadPoolExecutor);
-
-        //判断用户是否需要购买线程，该线程在加载小说章节信息线程执行完毕后才执行
-        CompletableFuture<Boolean> needBuyCompletableFuture = bookIndexCompletableFuture.thenApplyAsync((bookIndex) -> {
-            //判断该目录是否收费
-            if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
-                //收费
-                UserDetails user = getUserDetails(request);
-                if (user == null) {
-                    //未登录，需要购买
-                    return true;
-                }
-                //判断用户是否购买过该目录
-                boolean isBuy = userService.queryIsBuyBookIndex(user.getId(), bookIndexId);
-                if (!isBuy) {
-                    //没有购买过，需要购买
-                    return true;
-                }
-            }
-
-            log.debug("判断用户是否需要购买线程结束");
-            return false;
-
-        }, threadPoolExecutor);
 
         model.addAttribute("book", bookCompletableFuture.get());
         model.addAttribute("bookIndex", bookIndexCompletableFuture.get());
-        model.addAttribute("preBookIndexId", preBookIndexIdCompletableFuture.get());
-        model.addAttribute("nextBookIndexId", nextBookIndexIdCompletableFuture.get());
-        model.addAttribute("bookContent", bookContentCompletableFuture.get());
-        model.addAttribute("needBuy", needBuyCompletableFuture.get());
+        ChapterPageData chapterPageData = chapterPageDataCompletableFuture.get();
+        model.addAttribute("preBookIndexId", chapterPageData.preBookIndexId());
+        model.addAttribute("nextBookIndexId", chapterPageData.nextBookIndexId());
+        model.addAttribute("bookContent", chapterPageData.bookContent());
+        model.addAttribute("needBuy", chapterPageData.needBuy());
 
         return ThreadLocalUtil.getTemplateDir() + "book/book_content";
+    }
+
+    private record ChapterPageData(Long preBookIndexId, Long nextBookIndexId, BookContent bookContent,
+                                   boolean needBuy) {
     }
 
     /**

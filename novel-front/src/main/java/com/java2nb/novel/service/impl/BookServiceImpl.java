@@ -77,7 +77,7 @@ public class BookServiceImpl implements BookService {
 
     private final BookCategoryMapper bookCategoryMapper;
 
-    private final BookIndexMapper bookIndexMapper;
+    private final FrontBookIndexMapper bookIndexMapper;
 
     private final BookContentMapper bookContentMapper;
 
@@ -307,6 +307,11 @@ public class BookServiceImpl implements BookService {
         } else {
             return list.get(0).getId();
         }
+    }
+
+    @Override
+    public BookIndexNavigationVO queryBookIndexNavigation(Long bookId, Integer indexNum) {
+        return bookIndexMapper.queryNavigation(bookId, indexNum);
     }
 
     @Override
