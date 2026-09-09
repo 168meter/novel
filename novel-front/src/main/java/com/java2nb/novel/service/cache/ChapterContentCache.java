@@ -3,6 +3,9 @@ package com.java2nb.novel.service.cache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.java2nb.novel.entity.BookContent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -49,9 +52,22 @@ public class ChapterContentCache {
     private final int retryDelayMillis;
     private final LongConsumer sleeper;
     private final IntSupplier jitterSource;
+    private final Counter initialLookupHitCounter;
+    private final Counter initialLookupMissCounter;
+    private final Counter initialLookupErrorCounter;
+    private final Counter lockAcquiredCounter;
+    private final Counter lockContendedCounter;
+    private final Counter lockErrorCounter;
+    private final Counter writeSuccessCounter;
+    private final Counter writeErrorCounter;
+    private final Timer loadTimer;
 
     @Autowired
-    public ChapterContentCache(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public ChapterContentCache(
+        StringRedisTemplate redisTemplate,
+        ObjectMapper objectMapper,
+        MeterRegistry meterRegistry
+    ) {
         this(
             redisTemplate,
             objectMapper,
@@ -62,7 +78,8 @@ public class ChapterContentCache {
             DEFAULT_RETRY_COUNT,
             DEFAULT_RETRY_DELAY_MILLIS,
             ChapterContentCache::sleep,
-            () -> ThreadLocalRandom.current().nextInt(DEFAULT_JITTER_BOUND_SECONDS + 1)
+            () -> ThreadLocalRandom.current().nextInt(DEFAULT_JITTER_BOUND_SECONDS + 1),
+            meterRegistry
         );
     }
 
@@ -76,7 +93,8 @@ public class ChapterContentCache {
         int retryCount,
         int retryDelayMillis,
         LongConsumer sleeper,
-        IntSupplier jitterSource
+        IntSupplier jitterSource,
+        MeterRegistry meterRegistry
     ) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -88,6 +106,15 @@ public class ChapterContentCache {
         this.retryDelayMillis = retryDelayMillis;
         this.sleeper = sleeper;
         this.jitterSource = jitterSource;
+        this.initialLookupHitCounter = meterRegistry.counter("novel.chapter.cache.lookup", "result", "hit");
+        this.initialLookupMissCounter = meterRegistry.counter("novel.chapter.cache.lookup", "result", "miss");
+        this.initialLookupErrorCounter = meterRegistry.counter("novel.chapter.cache.lookup", "result", "error");
+        this.lockAcquiredCounter = meterRegistry.counter("novel.chapter.cache.lock", "result", "acquired");
+        this.lockContendedCounter = meterRegistry.counter("novel.chapter.cache.lock", "result", "contended");
+        this.lockErrorCounter = meterRegistry.counter("novel.chapter.cache.lock", "result", "error");
+        this.writeSuccessCounter = meterRegistry.counter("novel.chapter.cache.write", "result", "success");
+        this.writeErrorCounter = meterRegistry.counter("novel.chapter.cache.write", "result", "error");
+        this.loadTimer = meterRegistry.timer("novel.chapter.cache.load");
     }
 
     public BookContent getOrLoad(Long bookId, Long bookIndexId, Supplier<BookContent> loader) {
@@ -96,11 +123,14 @@ public class ChapterContentCache {
         try {
             firstRead = read(contentKey);
         } catch (RuntimeException exception) {
+            initialLookupErrorCounter.increment();
             return loadAfterCacheFailure(contentKey, loader, exception);
         }
         if (firstRead.present()) {
+            initialLookupHitCounter.increment();
             return firstRead.content();
         }
+        initialLookupMissCounter.increment();
 
         String lockKey = lockKey(bookId, bookIndexId);
         String token = UUID.randomUUID().toString();
@@ -109,7 +139,13 @@ public class ChapterContentCache {
             lockAcquired = Boolean.TRUE.equals(redisTemplate.opsForValue()
                 .setIfAbsent(lockKey, token, lockTtlSeconds, TimeUnit.SECONDS));
         } catch (RuntimeException exception) {
+            lockErrorCounter.increment();
             return loadAfterCacheFailure(contentKey, loader, exception);
+        }
+        if (lockAcquired) {
+            lockAcquiredCounter.increment();
+        } else {
+            lockContendedCounter.increment();
         }
 
         if (!lockAcquired) {
@@ -127,10 +163,12 @@ public class ChapterContentCache {
                 return secondRead.content();
             }
 
-            BookContent loaded = loader.get();
+            BookContent loaded = load(loader);
             try {
                 store(contentKey, loaded);
+                writeSuccessCounter.increment();
             } catch (RuntimeException exception) {
+                writeErrorCounter.increment();
                 log.warn("Failed to store chapter cache key={}", contentKey, exception);
             }
             return loaded;
@@ -173,7 +211,7 @@ public class ChapterContentCache {
                 return loadAfterCacheFailure(contentKey, loader, exception);
             }
         }
-        return loader.get();
+        return load(loader);
     }
 
     private CacheValue read(String key) {
@@ -226,7 +264,11 @@ public class ChapterContentCache {
         RuntimeException exception
     ) {
         log.warn("Chapter cache unavailable, falling back to loader key={}", contentKey, exception);
-        return loader.get();
+        return load(loader);
+    }
+
+    private BookContent load(Supplier<BookContent> loader) {
+        return loadTimer.record(loader);
     }
 
     private static String contentKey(Long bookId, Long bookIndexId) {
