@@ -1,0 +1,71 @@
+groups:
+  - name: novel-plus
+    rules:
+      - alert: NovelFrontDown
+        expr: up{job="novel-front"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Novel front is unavailable
+          description: Prometheus has been unable to scrape novel-front for one minute.
+
+      - alert: ChapterCacheErrors
+        expr: >-
+          sum(increase(novel_chapter_cache_lookup_total{result="error"}[5m]))
+          + sum(increase(novel_chapter_cache_write_total{result="error"}[5m]))
+          + sum(increase(novel_chapter_cache_lock_total{result="error"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Chapter cache errors detected
+          description: A chapter cache lookup, write, or lock operation failed during the last five minutes.
+
+      - alert: LowChapterCacheHitRate
+        expr: >-
+          sum(increase(novel_chapter_cache_lookup_total{result="hit"}[5m]))
+          / clamp_min(sum(increase(novel_chapter_cache_lookup_total[5m])), 1) < 0.90
+          and sum(increase(novel_chapter_cache_lookup_total[5m])) >= 100
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Chapter cache hit rate is low
+          description: Request-level chapter cache hit rate stayed below 90 percent with at least 100 lookups.
+
+      - alert: KafkaPublishFailures
+        expr: sum(increase(novel_book_visit_kafka_send_total{result="failed"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka publishing failures detected
+          description: At least one book visit event failed to publish during the last five minutes.
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum(kafka_consumer_fetch_manager_records_lag{topic="novel-book-visit-v1"}) > 10000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kafka consumer lag is high
+          description: Total lag for the book visit topic stayed above 10000 records.
+
+      - alert: HikariPendingConnections
+        expr: sum(hikaricp_connections_pending) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Database connections are pending
+          description: Requests have waited for a HikariCP database connection for one minute.
+
+      - alert: JvmHeapUsageHigh
+        expr: >-
+          sum(jvm_memory_used_bytes{area="heap"})
+          / clamp_min(sum(jvm_memory_max_bytes{area="heap"}), 1) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: JVM heap usage is high
+          description: JVM heap usage stayed above 85 percent for five minutes.

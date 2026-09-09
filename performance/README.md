@@ -157,3 +157,49 @@ Kafka 消息应形成 Lag，MySQL 恢复后再补写；Kafka 停机时点击接�
 MySQL，生产失败由 result=failed 指标暴露。非法事件进入 novel-book-visit-dlt，
 后续合法事件仍可消费。具体实测数字见
 performance/results/book-visit-kafka-summary.md。
+
+## 本地可观测性
+
+本阶段保持 Java 应用运行在 Windows 主机，Prometheus 和 Grafana 运行在 Docker。
+`monitoring` Profile 会让 Docker 通过 `host.docker.internal:8084` 抓取 Actuator；
+不要在公网环境启用这个仅供本地学习的 Profile。
+
+先启动基础设施和监控容器：
+
+```powershell
+$env:GRAFANA_ADMIN_PASSWORD = 'change-me'
+docker compose -f '.\compose.local.yml' up -d
+docker compose -f '.\compose.local.yml' ps
+```
+
+在单独的 PowerShell 窗口启动应用。脚本会自动定位当前 worktree，并通过 Git 找到
+共享主仓库中的外部 `config` 目录；它激活 `dev,monitoring`，同时保留
+`application.yml` include 的 `website,alipay,oss` Profiles：
+
+```powershell
+& '.\performance\start-front-monitoring.ps1'
+```
+
+应用和容器就绪后运行只读验收：
+
+```powershell
+& '.\performance\test-observability-config.ps1'
+& '.\performance\check-observability.ps1' -GrafanaPassword 'change-me'
+```
+
+常用页面：
+
+- Prometheus Targets：<http://127.0.0.1:9090/targets>
+- Prometheus Alerts：<http://127.0.0.1:9090/alerts>
+- Grafana：<http://127.0.0.1:3000>
+
+Grafana 会自动加载 `Novel-Plus Overview`，不需要手动创建数据源。Dashboard 主要
+回答四类问题：请求是否变慢或报错；章节缓存是否真正减少数据库回源；Kafka 是否
+发送失败或产生积压；JVM 和数据库连接池是否接近容量边界。
+
+Dashboard 的缓存命中率是完整章节查询的业务命中率，不是 Redis 服务所有命令的
+全局命中率。告警阈值只用于本地演示和故障发现，上线前必须根据真实流量基线调整。
+
+应用不可用告警演练时，只停止 `novel-front`，不要停止 Prometheus。等待超过一分钟
+后在 Alerts 页面确认 `NovelFrontDown` 进入 firing；重新用启动脚本运行应用后，
+告警应恢复。该演练不需要停止 MySQL、Redis 或 Kafka。

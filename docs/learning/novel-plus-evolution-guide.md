@@ -12,10 +12,12 @@
 2. 对章节阅读核心链路建立可靠压测基线。
 3. 使用 Redis 和代码结构优化解决热点章节、高并发失败问题。
 4. 再使用 Kafka 处理适合异步化的写操作，而不是为了使用 Kafka 强行引入。
-5. 完善搜索和推荐；先做可解释的规则/行为推荐，再考虑 AI 增强。
-6. 后端优先，逐步形成个人特色；最后学习 Linux、Docker 和云服务器部署。
+5. 建立 Prometheus + Grafana 可观测闭环，用指标证明优化并定位故障。
+6. 完善搜索和推荐；先做可解释的规则/行为推荐，再考虑 AI 增强。
+7. 后端优先，逐步形成个人特色；最后学习 Linux、Docker 和云服务器部署。
 
-当前进度在第 3 步。Kafka、搜索、推荐、AI、CentOS 部署尚未开始。
+当前已完成章节缓存、任务收敛、相邻章节 SQL 合并、Kafka 点击量聚合和 Micrometer
+指标埋点，正在完成第 5 步的本地可观测性。搜索、推荐、AI 和服务器部署尚未开始。
 
 ## 2. 工作区与 Git 状态
 
@@ -23,7 +25,7 @@
 - 性能改进 worktree：`D:\offer\novel-plus\.worktrees\chapter-performance`
 - 当前分支：`feature/chapter-performance`
 - 本轮起点：`c816f4b`
-- 当前“3任务 + 上下章单 SQL”改动尚未提交或合并。
+- 当前 worktree 已包含章节性能和 Kafka 聚合改造，尚未合并回主开发分支。
 
 已提交的阶段记录：
 
@@ -34,6 +36,7 @@
 | `fb5bea4` | 把数据库章节读取接入缓存，并补写后失效 |
 | `a1aa4ae` | 明确 Spring 应选择的缓存构造器 |
 | `c816f4b` | 整理章节缓存压测结论和操作说明 |
+| `53d4d0e` | 暴露章节缓存指标，供 Actuator/Prometheus 采集 |
 
 学习 Git 时，先掌握：`status` 看状态、`diff` 看改动、`add` 选择暂存内容、`commit` 保存一个可回退节点、`log` 看历史、`branch/worktree` 隔离功能开发。不要把 Git 理解成单纯上传 GitHub，它首先是本地版本管理工具。
 
@@ -47,6 +50,9 @@ Docker 不是虚拟机镜像的同义词。镜像是只读模板，容器是镜�
 |---|---|---:|---:|---|---|
 | MySQL 8 | `novel-mysql` | 3307 | 3306 | `123456` | `novel-mysql-data` |
 | Redis 7 | `novel-redis` | 6380 | 6379 | `123456` | `novel-redis-data` |
+| Kafka 4.3.1 | `novel-kafka` | 9092 | 9092 | 无 | `novel-kafka-data` |
+| Prometheus | `novel-prometheus` | 9090 | 9090 | 无 | `novel-prometheus-data` |
+| Grafana | `novel-grafana` | 3000 | 3000 | 本地环境变量 | `novel-grafana-data` |
 
 数据库初始化文件：`D:\offer\novel-plus\doc\sql\novel_plus_data.sql`。
 
@@ -56,7 +62,8 @@ Docker 不是虚拟机镜像的同义词。镜像是只读模板，容器是镜�
 - 实际MySQL连接：`D:\offer\novel-plus\config\shardingsphere-jdbc.yml`，当前为 `localhost:3307`、密码 `123456`
 - 仓库默认Redis开发配置：`novel-common/src/main/resources/application-common-dev.yml`
 - 性能测试启动时通过 JVM 参数覆盖Redis端口和密码：`-Dspring.data.redis.port=6380 -Dspring.data.redis.password=123456`
-- 通过 `-Duser.dir=D:\offer\novel-plus` 让独立 worktree 使用主目录的外部 `config`。
+- `performance/start-front-monitoring.ps1` 根据自身位置找到 worktree，再通过 Git common directory
+  定位共享主仓库中的外部 `config`；这样不会误读 worktree 内尚未同步的数据库连接配置。
 
 常用Docker命令：
 
@@ -359,3 +366,58 @@ Tomcat 线程只负责把消息交给 Kafka 生产者，不再等待热门 book 
 
 - docs/superpowers/specs/2026-09-02-kafka-book-visit-design.md
 - docs/superpowers/plans/2026-09-02-kafka-book-visit.md
+
+## 12. 第六阶段：把性能优化变成可观测闭环
+
+前面的缓存、SQL 和 Kafka 改造解决了具体问题，但只有运行指标才能持续回答：优化是否
+仍然有效、瓶颈现在在哪里、依赖失败时系统发生了什么。本阶段采用方案 A：Java 应用
+继续运行在 Windows，Prometheus 和 Grafana 运行在 Docker。
+
+数据流：
+
+    novel-front /actuator/prometheus
+      -> Prometheus 每15秒抓取并计算告警
+      -> Grafana 查询 Prometheus 并展示 Dashboard
+
+为避免影响生产环境，`application-monitoring.yml` 只有显式启用时才把管理端口绑定到
+`0.0.0.0:8084`，供 Docker 使用 `host.docker.internal` 访问。Prometheus 9090 和
+Grafana 3000 在宿主机上仍只绑定 `127.0.0.1`。
+
+### 12.1 观察的四组问题
+
+1. HTTP：请求速率、5xx 比例、P95/P99 是否异常。
+2. 缓存：业务请求命中率、Redis 读写错误、锁竞争、MySQL 回源次数和耗时。
+3. Kafka：发送成功/失败、消费和落库速度、批量聚合效果、Consumer Lag。
+4. 资源：Heap、GC、线程和 HikariCP 连接池是否接近容量上限。
+
+缓存命中率的分母是 `ChapterContentCache#getOrLoad` 的完整查询次数，因此能直接回答
+“100 次章节请求有多少次没有访问 MySQL”。它和 Redis 实例上所有命令的全局命中率
+不是同一个指标。
+
+### 12.2 告警的意义
+
+- `NovelFrontDown`：应用或 Actuator 连续一分钟不可抓取。
+- `ChapterCacheErrors`：缓存读取、写入或锁操作发生错误。
+- `LowChapterCacheHitRate`：五分钟至少100次查询且命中率持续低于90%。
+- `KafkaPublishFailures`：点击事件发送失败。
+- `KafkaConsumerLagHigh`：点击 Topic 积压超过本地演示阈值。
+- `HikariPendingConnections`：请求开始等待数据库连接。
+- `JvmHeapUsageHigh`：Heap 长时间超过85%。
+
+这里的阈值用于学习和本地故障演练，不能原样复制到生产。生产阈值必须结合稳定流量、
+机器规格、错误预算和历史基线重新校准。
+
+### 12.3 验证入口
+
+    docker compose -f '.\compose.local.yml' up -d
+    & '.\performance\start-front-monitoring.ps1'
+    & '.\performance\test-observability-config.ps1'
+    & '.\performance\check-observability.ps1'
+
+页面入口：Prometheus Targets 为 `http://127.0.0.1:9090/targets`，Alerts 为
+`http://127.0.0.1:9090/alerts`，Grafana 为 `http://127.0.0.1:3000`。Grafana 的
+Prometheus 数据源和 `Novel-Plus Overview` Dashboard 都由仓库文件自动创建。
+
+完成这一阶段后，项目形成“压测产生流量 → 指标采集 → Dashboard 观察 → 告警发现
+异常 → 根据数据继续优化”的闭环。下一步再进入部署加固，而不是继续无边界地增加本地
+监控组件。

@@ -17,11 +17,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Net.Http
 
 function Get-BookVisitCount {
     param([long]$TargetBookId)
 
-    $raw = docker exec novel-mysql mysql -uroot -p123456 -N -s novel_plus -e "SELECT visit_count FROM book WHERE id = $TargetBookId;" 2>$null
+    $raw = docker exec -e MYSQL_PWD=123456 novel-mysql mysql -uroot -N -s novel_plus -e "SELECT visit_count FROM book WHERE id = $TargetBookId;" 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $raw) {
         throw "Unable to read visit_count for book $TargetBookId"
     }
@@ -91,7 +92,9 @@ $successBefore = Get-MetricCount -MetricName 'novel.book.visit.kafka.send' -Resu
 $failedBefore = Get-MetricCount -MetricName 'novel.book.visit.kafka.send' -Result 'failed'
 
 [int]$acceptedRequests = 0
-$httpClient = [System.Net.Http.HttpClient]::new()
+$httpHandler = [System.Net.Http.HttpClientHandler]::new()
+$httpHandler.MaxConnectionsPerServer = $MaxConcurrency
+$httpClient = [System.Net.Http.HttpClient]::new($httpHandler, $true)
 $httpClient.Timeout = [TimeSpan]::FromSeconds(10)
 try {
     for ($batchStart = 0; $batchStart -lt $RequestCount; $batchStart += $MaxConcurrency) {
