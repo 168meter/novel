@@ -59,6 +59,22 @@ foreach ($metric in @('novel_chapter_cache_lookup_total', 'novel_book_visit_kafk
     Write-Pass "Prometheus contains $metric"
 }
 
+$executorQueries = @(
+    'executor_active_threads{name="novel.front.executor"}'
+    'executor_pool_size_threads{name="novel.front.executor"}'
+    'executor_completed_tasks_total{name="novel.front.executor"}'
+    'executor_queued_tasks{name="novel.front.executor"}'
+    'executor_queue_remaining_tasks{name="novel.front.executor"}'
+    'novel_front_executor_rejections_total'
+)
+foreach ($query in $executorQueries) {
+    $series = Invoke-PrometheusQuery $query
+    if ($series.Count -eq 0) {
+        throw "Prometheus executor query has no series: $query"
+    }
+    Write-Pass "Prometheus query returned executor data: $query"
+}
+
 $rules = Invoke-Json "$PrometheusUrl/api/v1/rules"
 $loadedAlerts = @($rules.data.groups.rules | Where-Object { $_.type -eq 'alerting' } | ForEach-Object { $_.name })
 $expectedAlerts = @(
@@ -69,6 +85,8 @@ $expectedAlerts = @(
     'KafkaConsumerLagHigh'
     'HikariPendingConnections'
     'JvmHeapUsageHigh'
+    'FrontExecutorRejectedTasks'
+    'FrontExecutorQueueSaturated'
 )
 foreach ($alert in $expectedAlerts) {
     if ($alert -notin $loadedAlerts) {
@@ -94,6 +112,12 @@ Write-Pass 'Grafana Prometheus datasource is provisioned'
 $dashboard = Invoke-Json "$GrafanaUrl/api/dashboards/uid/novel-plus-overview" $grafanaHeaders
 if ($dashboard.dashboard.uid -ne 'novel-plus-overview') {
     throw 'Grafana Novel-Plus dashboard is not provisioned.'
+}
+$panelTitles = @($dashboard.dashboard.panels | ForEach-Object { $_.title })
+foreach ($panelTitle in @('Front Executor Utilization', 'Front Executor Queue / Rejections')) {
+    if ($panelTitle -notin $panelTitles) {
+        throw "Grafana executor panel is missing: $panelTitle"
+    }
 }
 Write-Pass 'Grafana Novel-Plus dashboard is provisioned'
 

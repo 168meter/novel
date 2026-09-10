@@ -64,7 +64,7 @@ This establishes two separate improvement targets:
 2. Preserve truthful failure signals so rejected work cannot be mistaken for successful
    throughput.
 
-## After Optimization
+## After Cache Optimization (historical, before executor closeout)
 
 | Threads | Throughput req/s | Successful throughput req/s | P50 ms | P95 ms | P99 ms | Error % |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -75,9 +75,9 @@ This establishes two separate improvement targets:
 | 100 | 3586.82 | 202.90 | 15 | 82 | 123 | 94.34 |
 | 200 | 3553.26 | 176.53 | 46 | 122 | 250.99 | 95.03 |
 
-The optimized run remains stable through 30 threads, but the capacity boundary does not
-move past 50 threads. The cache improves the zero-error 30-thread stage; it does not remove
-the controller's per-request fan-out into the fixed 20-thread executor.
+At this intermediate revision the run remained stable through 30 threads, but the capacity
+boundary did not move past 50 threads. The cache improved the zero-error 30-thread stage;
+it did not yet remove the controller's per-request fan-out into the fixed 20-thread executor.
 
 ## Comparison
 
@@ -108,10 +108,11 @@ Cold/hot functional checks both returned a real mobile chapter page. The cold re
 49.46 ms, the hot request 36.70 ms, and the resulting TTL was 1815 seconds (the designed
 1800–2100 second range).
 
-The remaining limiting resource is the shared `ThreadPoolExecutor` (10 core, 20 maximum,
-queue 100) used for several `CompletableFuture` tasks per page. At 50 threads its
-`AbortPolicy` still rejects work. The global exception handler then renders a 404 page with
-HTTP status 200, which is why raw throughput rises while successful throughput collapses.
+At this historical revision the remaining limiting resource was the shared
+`ThreadPoolExecutor` (10 core, 20 maximum, queue 100) used for several
+`CompletableFuture` tasks per page. At 50 threads its `AbortPolicy` rejected work. The
+global exception handler then rendered a 404 page with HTTP status 200, which is why raw
+throughput rose while successful throughput collapsed.
 
 During the Redis outage, `ChapterContentCache` correctly logged a database fallback. The
 page still failed because the pre-existing `ThreadLocalUtil.getTemplateDir()` path reads
@@ -121,6 +122,38 @@ dependency is outside the chapter-cache boundary and is the next resilience task
 An actual author-data mutation was not performed against the shared local dataset. Cache
 deletion timing is covered by the transaction synchronization tests; an authenticated
 author update smoke test remains required before production deployment.
+
+## Executor Capacity Closeout (2026-09-10)
+
+The shared front-end executor now exports Micrometer active-thread, pool-size, completed,
+queued, remaining-capacity, and rejection metrics. Its `AbortPolicy` behavior is unchanged:
+the custom handler increments `novel_front_executor_rejections_total` and then delegates to
+the original policy. Grafana and Prometheus use the `novel.front.executor` tag/name because
+the same executor also serves non-chapter front-end work.
+
+An initial 100-thread diagnostic run against the three-task chapter revision reproduced the
+failure at a larger scale: 361,582 samples, 96.76% business errors, executor active peak 20,
+queue peak 100, remaining capacity 0, and roughly 100,000 rejected submissions. Of those
+responses, 349,855 were 591-byte HTTP-200 custom error pages. The reported 6,029.8 req/s was
+therefore invalid as successful throughput.
+
+The controller was then changed from three executor submissions per chapter request to one
+complete page-data task. It still returns the same book, index, navigation, content, and VIP
+decision fields. The final acceptance run used the same book/chapter and 60 seconds per
+stage:
+
+| Threads | Samples | Throughput req/s | Successful throughput req/s | Average ms | P95 ms | P99 ms | Error % | Active peak | Queue peak | Minimum remaining | Rejections |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 50 | 52,220 | 870.4 | 870.4 | 52.6 | 62 | 68 | 0.00 | 10 | 38 | 62 | 0 |
+| 100 | 50,898 | 847.7 | 847.7 | 98.4 | 130 | 145 | 0.00 | 10 | 85 | 15 | 0 |
+
+At 100 threads the sampled queue settled around 83–85 rather than continuously increasing.
+The current measured stable boundary therefore covers 100 concurrent readers on this local
+machine. Throughput has already plateaued while tail latency increases, so this is a measured
+capacity boundary rather than evidence that larger thread or queue settings would scale
+indefinitely. Raw reports are under
+`performance/results/raw/executor-single-task-20260910/` and remain intentionally ignored by
+Git; the tracked table above preserves the acceptance evidence.
 
 ## Separate visit-write optimization
 
