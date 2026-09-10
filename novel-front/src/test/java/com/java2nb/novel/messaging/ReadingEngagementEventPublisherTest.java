@@ -87,6 +87,47 @@ class ReadingEngagementEventPublisherTest {
     }
 
     @Test
+    void recordsNonKafkaRuntimeSendFailureWithoutPropagating() {
+        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+            .thenThrow(new IllegalStateException("producer state unavailable"));
+
+        assertThatCode(() -> publisher.publish(
+            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            .doesNotThrowAnyException();
+
+        assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
+    }
+
+    @Test
+    void logsFailureCountWithoutCanaryExceptionDataOrThrowableProxy() {
+        RuntimeException canary = new RuntimeException(
+            "cookie=canary session=canary pageVisitId=canary ip=canary");
+        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+            .thenReturn(CompletableFuture.failedFuture(canary));
+        Logger logger = (Logger) LoggerFactory.getLogger(ReadingEngagementEventPublisher.class);
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            publisher.publish(42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"),
+                LocalDate.of(2026, 9, 10));
+
+            assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN)
+                .hasSize(1)
+                .allSatisfy(event -> {
+                    assertThat(event.getFormattedMessage()).doesNotContain(
+                        "cookie", "session", "pageVisitId", "ip", "canary");
+                    assertThat(event.getThrowableProxy()).isNull();
+                });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
     void rateLimitsWarningsToFirstAndThousandthFailure() {
         when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker overloaded")));

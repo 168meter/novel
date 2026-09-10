@@ -9,7 +9,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.common.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -56,19 +55,19 @@ public class ReadingEngagementEventPublisher {
                     if (failure == null) {
                         successCounter.increment();
                     } else {
-                        recordFailure(failure);
+                        recordFailure();
                     }
                 });
-        } catch (KafkaException failure) {
-            recordFailure(failure);
+        } catch (RuntimeException failure) {
+            recordFailure();
         }
     }
 
-    private void recordFailure(Throwable failure) {
+    private void recordFailure() {
         failedCounter.increment();
         long totalFailures = failureCount.incrementAndGet();
         if (totalFailures == 1L || totalFailures % FAILURE_LOG_INTERVAL == 0L) {
-            log.warn("Kafka reading engagement publish failures={}", totalFailures, failure);
+            log.warn("Kafka reading engagement publish failures={}", totalFailures);
         }
     }
 }
