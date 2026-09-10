@@ -38,6 +38,8 @@ $rules = Join-Path $root 'monitoring/prometheus/rules/novel-plus-alerts.yml'
     'KafkaConsumerLagHigh'
     'HikariPendingConnections'
     'JvmHeapUsageHigh'
+    'FrontExecutorRejectedTasks'
+    'FrontExecutorQueueSaturated'
 ) | ForEach-Object {
     Assert-FileContains $rules ("alert:\s*" + $_)
 }
@@ -72,6 +74,33 @@ if (-not $httpLatencyPanel) {
 }
 if ('Average' -notin @($httpLatencyPanel.targets.legendFormat)) {
     throw 'HTTP average latency target is missing.'
+}
+
+$executorPanel = $dashboard.panels | Where-Object { $_.title -eq 'Front Executor Utilization' }
+if (-not $executorPanel) {
+    throw 'Chapter executor utilization panel is missing.'
+}
+@(
+    'executor_active_threads{name="novel.front.executor"}'
+    'executor_pool_size_threads{name="novel.front.executor"}'
+) | ForEach-Object {
+    if ($_ -notin @($executorPanel.targets.expr)) {
+        throw "Chapter executor utilization query is missing: $_"
+    }
+}
+
+$executorQueuePanel = $dashboard.panels | Where-Object { $_.title -eq 'Front Executor Queue / Rejections' }
+if (-not $executorQueuePanel) {
+    throw 'Chapter executor queue and rejection panel is missing.'
+}
+@(
+    'executor_queued_tasks{name="novel.front.executor"}'
+    'executor_queue_remaining_tasks{name="novel.front.executor"}'
+    'sum(rate(novel_front_executor_rejections_total[$__rate_interval]))'
+) | ForEach-Object {
+    if ($_ -notin @($executorQueuePanel.targets.expr)) {
+        throw "Chapter executor queue or rejection query is missing: $_"
+    }
 }
 
 Write-Host 'Observability configuration contract passed.'

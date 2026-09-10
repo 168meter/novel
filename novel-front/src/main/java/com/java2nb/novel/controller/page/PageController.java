@@ -226,48 +226,34 @@ public class PageController extends BaseController {
     @RequestMapping("/book/{bookId}/{bookIndexId}.html")
     public String bookContent(@PathVariable("bookId") Long bookId, @PathVariable("bookIndexId") Long bookIndexId,
         HttpServletRequest request, Model model) {
-        //加载小说基本信息线程
-        CompletableFuture<Book> bookCompletableFuture = CompletableFuture.supplyAsync(() -> {
-            //查询书籍
+        // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
+        CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
             Book book = bookService.queryBookDetail(bookId);
-            log.debug("加载小说基本信息线程结束");
-            return book;
-        }, threadPoolExecutor);
-
-        //加载小说章节信息线程
-        CompletableFuture<BookIndex> bookIndexCompletableFuture = CompletableFuture.supplyAsync(() -> {
-            //查询目录
             BookIndex bookIndex = bookService.queryBookIndex(bookIndexId);
-            log.debug("加载小说章节信息线程结束");
-            return bookIndex;
+
+            BookIndexNavigationVO navigation =
+                bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
+            BookContent bookContent = bookContentServiceMap.get(bookIndex.getStorageType())
+                .queryBookContent(bookId, bookIndexId);
+
+            boolean needBuy = false;
+            if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
+                UserDetails user = getUserDetails(request);
+                if (user == null) {
+                    needBuy = true;
+                } else {
+                    needBuy = !userService.queryIsBuyBookIndex(user.getId(), bookIndexId);
+                }
+            }
+
+            log.debug("加载章节页面数据线程结束");
+            return new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
+                navigation.getNextBookIndexId(), bookContent, needBuy);
         }, threadPoolExecutor);
 
-        //章节信息加载完毕后，用一个聚合任务完成页面剩余数据，避免一次完成触发四个新任务
-        CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = bookIndexCompletableFuture.thenApplyAsync(
-            (bookIndex) -> {
-                BookIndexNavigationVO navigation =
-                    bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
-                BookContent bookContent = bookContentServiceMap.get(bookIndex.getStorageType())
-                    .queryBookContent(bookId, bookIndexId);
-
-                boolean needBuy = false;
-                if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
-                    UserDetails user = getUserDetails(request);
-                    if (user == null) {
-                        needBuy = true;
-                    } else {
-                        needBuy = !userService.queryIsBuyBookIndex(user.getId(), bookIndexId);
-                    }
-                }
-
-                log.debug("加载章节页面聚合数据线程结束");
-                return new ChapterPageData(navigation.getPreBookIndexId(), navigation.getNextBookIndexId(),
-                    bookContent, needBuy);
-            }, threadPoolExecutor);
-
-        model.addAttribute("book", bookCompletableFuture.get());
-        model.addAttribute("bookIndex", bookIndexCompletableFuture.get());
         ChapterPageData chapterPageData = chapterPageDataCompletableFuture.get();
+        model.addAttribute("book", chapterPageData.book());
+        model.addAttribute("bookIndex", chapterPageData.bookIndex());
         model.addAttribute("preBookIndexId", chapterPageData.preBookIndexId());
         model.addAttribute("nextBookIndexId", chapterPageData.nextBookIndexId());
         model.addAttribute("bookContent", chapterPageData.bookContent());
@@ -276,8 +262,8 @@ public class PageController extends BaseController {
         return ThreadLocalUtil.getTemplateDir() + "book/book_content";
     }
 
-    private record ChapterPageData(Long preBookIndexId, Long nextBookIndexId, BookContent bookContent,
-                                   boolean needBuy) {
+    private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
+                                   BookContent bookContent, boolean needBuy) {
     }
 
     /**

@@ -69,3 +69,22 @@ groups:
         annotations:
           summary: JVM heap usage is high
           description: JVM heap usage stayed above 85 percent for five minutes.
+
+      - alert: FrontExecutorRejectedTasks
+        expr: increase(novel_front_executor_rejections_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Front executor rejected tasks
+          description: The shared front-end executor rejected at least one task during the last five minutes.
+
+      - alert: FrontExecutorQueueSaturated
+        expr: >-
+          executor_queue_remaining_tasks{name="novel.front.executor"} == 0
+          and executor_queued_tasks{name="novel.front.executor"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Front executor queue is saturated
+          description: The shared front-end executor queue had no remaining capacity for one minute.
