@@ -31,6 +31,15 @@ class ReadingClientAddressResolverTest {
         assertThat(resolver.resolve(request)).isEqualTo("127.0.0.1");
     }
 
+    @Test
+    void rejectsMalformedIpLiteralsFromTrustedLoopbackProxy() {
+        for (String malformedHeader : new String[] {":", "...", "1.2.3.999"}) {
+            MockHttpServletRequest request = request("127.0.0.1", malformedHeader);
+
+            assertThat(resolver.resolve(request)).isEqualTo("127.0.0.1");
+        }
+    }
+
     private MockHttpServletRequest request(String remoteAddress, String realIpHeader) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setRemoteAddr(remoteAddress);
