@@ -284,6 +284,13 @@
 </div>
 
 <a name="buttom"></a>
+<div id="reading-engagement"
+     th:if="${readingPageVisitId != null}"
+     th:data-book-id="${book.id}"
+     th:data-chapter-id="${bookIndex.id}"
+     th:data-page-visit-id="${readingPageVisitId}"
+     hidden></div>
+<script type="module" src="/javascript/reading-heartbeat.mjs"></script>
 </body>
 
 <script>
