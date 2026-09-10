@@ -45,6 +45,13 @@ public class ThreadLocalUtil {
         clientId.set(id);
     }
 
+    /**
+     * 获取当前访问线程的客户端ID
+     * */
+    public static String getClientId(){
+        return clientId.get();
+    }
+
 
 
 }
