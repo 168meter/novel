@@ -41,7 +41,7 @@ Novel-Plus 已完成章节缓存、防击穿、异步执行器容量治理、Kaf
 
 ### 3.1 匿名浏览器身份
 
-系统复用 `NovelFilter` 已创建的 `userMark`，不再增加第二个匿名 Cookie。`userMark` 是随机值，只代表当前浏览器配置文件，不能证明它对应某个真实自然人。
+系统复用 `NovelFilter` 已创建的匿名标识；代码常量为 `USER_CLIENT_MARK_KEY`，实际 Cookie 名称为 `userClientMarkKey`，下文简称 `userMark`，不再增加第二个匿名 Cookie。`userMark` 是随机值，只代表当前浏览器配置文件，不能证明它对应某个真实自然人。
 
 Cookie 调整为：
 
