@@ -22,6 +22,11 @@ public class Constants {
     public static final String USER_CLIENT_MARK_KEY = "userClientMarkKey";
 
     /**
+     * 用户客户端标识 Cookie 有效期（秒）
+     * */
+    public static final int USER_CLIENT_MARK_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
+    /**
      * Object Json 缓存存在的最小长度
      * */
     public static final int OBJECT_JSON_CACHE_EXIST_LENGTH = 5;
