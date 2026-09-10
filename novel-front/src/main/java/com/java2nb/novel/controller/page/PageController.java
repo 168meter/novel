@@ -3,6 +3,7 @@ package com.java2nb.novel.controller.page;
 import com.java2nb.novel.controller.BaseController;
 import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.core.utils.ThreadLocalUtil;
+import com.java2nb.novel.engagement.ReadingPageVisitRegistrar;
 import com.java2nb.novel.entity.*;
 import com.java2nb.novel.service.*;
 import com.java2nb.novel.vo.BookCommentVO;
@@ -43,6 +44,8 @@ public class PageController extends BaseController {
     private final ThreadPoolExecutor threadPoolExecutor;
 
     private final Map<String, BookContentService> bookContentServiceMap;
+
+    private final ReadingPageVisitRegistrar readingPageVisitRegistrar;
 
     @RequestMapping("{url}.html")
     public String module(@PathVariable("url") String url) {
@@ -258,6 +261,11 @@ public class PageController extends BaseController {
         model.addAttribute("nextBookIndexId", chapterPageData.nextBookIndexId());
         model.addAttribute("bookContent", chapterPageData.bookContent());
         model.addAttribute("needBuy", chapterPageData.needBuy());
+
+        if (!chapterPageData.needBuy() && chapterPageData.bookContent() != null) {
+            readingPageVisitRegistrar.register(ThreadLocalUtil.getClientId(), bookId, bookIndexId)
+                .ifPresent(pageVisitId -> model.addAttribute("readingPageVisitId", pageVisitId));
+        }
 
         return ThreadLocalUtil.getTemplateDir() + "book/book_content";
     }
