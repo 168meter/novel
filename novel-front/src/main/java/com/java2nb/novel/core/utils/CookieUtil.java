@@ -26,4 +26,16 @@ public class CookieUtil {
         response.addCookie(cookie);
     }
 
+    public static void setCookie(HttpServletResponse response, String key, String value,
+                                 int maxAgeSeconds, boolean httpOnly, boolean secure,
+                                 String sameSite) {
+        Cookie cookie = new Cookie(key, value);
+        cookie.setPath("/");
+        cookie.setMaxAge(maxAgeSeconds);
+        cookie.setHttpOnly(httpOnly);
+        cookie.setSecure(secure);
+        cookie.setAttribute("SameSite", sameSite);
+        response.addCookie(cookie);
+    }
+
 }
