@@ -240,6 +240,36 @@
       ],
       "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+    },
+    {
+      "id": 23,
+      "title": "Reading Heartbeat Outcomes",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 57},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (result) (rate(novel_reading_heartbeat_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ops", "min": 0}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+    },
+    {
+      "id": 24,
+      "title": "Reading Credited Seconds / s",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 57},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(novel_reading_credited_seconds_total[$__rate_interval]))", "legendFormat": "credited seconds/s", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "id": 25,
+      "title": "Reading Kafka Send / s",
+      "type": "timeseries",
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 57},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (result) (rate(novel_reading_kafka_send_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ops", "min": 0}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
     }
   ],
   "refresh": "10s",

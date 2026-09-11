@@ -35,6 +35,8 @@ $rules = Join-Path $root 'monitoring/prometheus/rules/novel-plus-alerts.yml'
     'ChapterCacheErrors'
     'LowChapterCacheHitRate'
     'KafkaPublishFailures'
+    'ReadingEngagementRedisErrors'
+    'ReadingEngagementKafkaPublishFailures'
     'KafkaConsumerLagHigh'
     'HikariPendingConnections'
     'JvmHeapUsageHigh'
@@ -50,6 +52,7 @@ $rules = Join-Path $root 'monitoring/prometheus/rules/novel-plus-alerts.yml'
     'monitoring/grafana/provisioning/datasources/prometheus.yml'
     'monitoring/grafana/provisioning/dashboards/dashboards.yml'
     'monitoring/grafana/dashboards/novel-plus-overview.json'
+    'performance/check-reading-engagement.ps1'
 ) | ForEach-Object {
     $path = Join-Path $root $_
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -101,6 +104,32 @@ if (-not $executorQueuePanel) {
     if ($_ -notin @($executorQueuePanel.targets.expr)) {
         throw "Chapter executor queue or rejection query is missing: $_"
     }
+}
+
+$readingQueries = @{
+    'Reading Heartbeat Outcomes' = 'sum by (result) (rate(novel_reading_heartbeat_total[$__rate_interval]))'
+    'Reading Credited Seconds / s' = 'sum(rate(novel_reading_credited_seconds_total[$__rate_interval]))'
+    'Reading Kafka Send / s' = 'sum by (result) (rate(novel_reading_kafka_send_total[$__rate_interval]))'
+}
+foreach ($title in $readingQueries.Keys) {
+    $panel = @($dashboard.panels | Where-Object { $_.title -eq $title })
+    if ($panel.Count -ne 1 -or $readingQueries[$title] -notin @($panel.targets.expr)) {
+        throw "Reading engagement panel or exact query is missing: $title"
+    }
+}
+Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_heartbeat_total{result="redis_error"}[5m])) > 0'))
+Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_kafka_send_total{result="failed"}[5m])) > 0'))
+$ruleText = Get-Content -LiteralPath $rules -Raw
+$redisRule = [regex]::Match($ruleText, '(?ms)^      - alert: ReadingEngagementRedisErrors\r?\n.*?(?=^      - alert:|\z)').Value
+$kafkaRule = [regex]::Match($ruleText, '(?ms)^      - alert: ReadingEngagementKafkaPublishFailures\r?\n.*?(?=^      - alert:|\z)').Value
+if ($redisRule -notmatch '(?m)^        for: 1m\s*$' -or $kafkaRule -match '(?m)^        for:') {
+    throw 'Reading Redis alert must wait 1m; reading Kafka alert must evaluate immediately.'
+}
+foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/test-observability-config.ps1')) {
+    $parseErrors = $null
+    $tokens = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $relativePath), [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count) { throw "PowerShell syntax errors in $relativePath" }
 }
 
 Write-Host 'Observability configuration contract passed.'

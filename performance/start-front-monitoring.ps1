@@ -1,7 +1,8 @@
 param(
     [string]$RedisPort = '6380',
     [string]$RedisPassword = '123456',
-    [string]$MavenCommand = ''
+    [string]$MavenCommand = '',
+    [string]$ReadingIpHmacSecret = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,10 +71,24 @@ Write-Host "Using runtime configuration: $shardingConfig"
 Write-Host "Activating Spring profiles: $activeProfiles (plus profiles included by application.yml)"
 
 Push-Location $root
+$previousReadingSecret = $env:NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET
 try {
+    if ($ReadingIpHmacSecret) {
+        $env:NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET = $ReadingIpHmacSecret
+    }
+    elseif (-not $env:NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET) {
+        $secretBytes = New-Object byte[] 32
+        $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $random.GetBytes($secretBytes) } finally { $random.Dispose() }
+        $env:NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET = [Convert]::ToBase64String($secretBytes)
+        [Array]::Clear($secretBytes, 0, $secretBytes.Length)
+        Write-Host 'Generated a process-local reading IP HMAC secret.'
+    }
     & $maven `
         '-pl' 'novel-front' `
         '-DskipTests' `
+        '-Dmaven.repo.local=C:\Users\26635\.m2\repository' `
+        '-Dmaven.compiler.fork=true' `
         "-Dspring-boot.run.jvmArguments=$jvmArguments" `
         'spring-boot:run'
 
@@ -82,5 +97,6 @@ try {
     }
 }
 finally {
+    $env:NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET = $previousReadingSecret
     Pop-Location
 }

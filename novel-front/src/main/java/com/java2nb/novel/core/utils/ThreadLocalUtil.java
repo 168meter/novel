@@ -30,10 +30,14 @@ public class ThreadLocalUtil {
      * 获取当前应该访问的模板路径前缀
      * */
     public static String getTemplateDir(){
-        CacheService cacheService = SpringUtil.getBean(CacheService.class);
-        String prefix = cacheService.get(CacheKey.TEMPLATE_DIR_KEY+clientId.get());
-        if(prefix != null){
-            return prefix;
+        try {
+            CacheService cacheService = SpringUtil.getBean(CacheService.class);
+            String prefix = cacheService.get(CacheKey.TEMPLATE_DIR_KEY+clientId.get());
+            if(prefix != null){
+                return prefix;
+            }
+        } catch (RuntimeException ignored) {
+            // Fall back to the template selected by NovelFilter for this request.
         }
         return templateDir.get();
     }

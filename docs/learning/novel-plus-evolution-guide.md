@@ -452,3 +452,59 @@ Prometheus 数据源和 `Novel-Plus Overview` Dashboard 都由仓库文件自动
 100并发时队列采样稳定在83–85附近，没有持续上升。结果说明当前代码在本机测试环境
 下的稳定边界至少覆盖100个并发阅读用户；并发翻倍后吞吐不再增长且尾延迟上升，已经
 接近容量平台期，后续不能仅靠增加线程数或队列宣称性能继续提升。
+
+## 14. 第八阶段：有效阅读心跳与可观测性
+
+点击章节和真正停留阅读是两种信号。本阶段在桌面/移动阅读页渲染一次性页面访问 token，
+浏览器只有连续可见且有焦点满 30 秒才发送心跳。失焦、隐藏或离开页面会舍弃不足一个
+周期的时间；网络失败不会立即重试，避免把重试风暴当成阅读时间。两个模板共用 ES module，
+其九项 Node 测试覆盖完整周期、失焦/隐藏恢复、退出清理及合法/非法 bootstrap。
+
+服务端从 Cookie 建立匿名浏览器 session，从可信代理覆盖的 X-Real-IP 生成 HMAC。
+Redis Lua gate 在一次原子执行中校验页面绑定、递增 sequence、60 秒 session 上限 2、
+IP 上限 120、每个 session/书/章节每天 1800 秒额度。仅 accepted 计入 30 秒并发 Kafka；
+重复、非法 token、超过限流或日额度不加时。每次检查、去重和额度变更必须原子进行，
+否则多个标签页并发会绕过额度。页面 token 不证明真实人在阅读，这仍是可解释的近似指标。
+
+7 天 Cookie 身份与服务端日聚合相互独立：身份可跨日沿用，statDate 依据服务器
+Asia/Shanghai 日期自然切换。清 Cookie/换浏览器使同人被分开，共享浏览器使多人被合并，
+所以不能把匿名浏览器数等同于真实人数。IP 只用于粗粒度防滥用，共享出口会影响限流。
+Kafka 消息只含事件和书/章节/秒数/时间/统计日，不含 Cookie、session hash、IP HMAC 或原始 IP；
+身份散列只留在短期 Redis 状态，不能出现在日志或指标标签中。
+
+启动入口 `performance/start-front-monitoring.ps1` 依参数、已有环境、32-byte CSPRNG 顺序
+注入 HMAC secret，值只经子进程环境传递，不输出。公网必须注入稳定高熵密钥、所有实例
+一致使用；应用端口仅允许可信 Nginx 到达，Nginx 覆盖 X-Real-IP，限制 Actuator 访问。
+本地随机密钥重启会改变 IP 分桶，不能用作公网密钥管理方案。
+
+监控把“收到请求”“接受 credit”“Kafka 确认”分开观察。heartbeat 的 result 只允许
+accepted/duplicate/invalid_page/session_rate_limited/ip_rate_limited/daily_cap_reached/redis_error，
+Kafka result 只允许 success/failed；credited_seconds 累计接受秒数，Redis gate timer 观察耗时。
+Grafana 三个 Reading 面板分别展示结果速率、计入秒数速率、发送结果；Prometheus 的
+ReadingEngagementRedisErrors 对五分钟错误信号持续一分钟告警，Kafka 失败告警没有额外等待。
+所有查询仅使用有限 result 标签，不以书籍、章节、匿名身份或 IP 作为维度。
+
+真实接口验收入口：
+
+```powershell
+& '.\performance\start-front-monitoring.ps1'
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264
+& '.\performance\check-observability.ps1' -GrafanaUser 'admin' -GrafanaPassword '123456'
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -VerifyIpLimit
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -FailureDrill Redis
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -FailureDrill Kafka
+```
+
+启动在单独窗口运行。普通 smoke 只读查询第一个非 VIP 章节，以同一 Cookie 和 token
+发送 1/1/2，期望 accepted +2、duplicate +1、60 秒、Kafka success +2。
+IP 演练随后创建 121 个独立 session，固定测试 X-Real-IP，60 秒内应得到 120/1；
+重跑至少间隔 61 秒，不能靠删除 Redis 状态重置额度。所有脚本不打印身份值，不修改 MySQL。
+
+Redis 停机时章节仍应 HTTP 200 且没有 token，心跳失败不阻断阅读；Kafka 停机时已接受
+心跳仍 HTTP 200，但 failed 增长，credit 不回滚，也不回退到同步 MySQL。每个故障演练
+用 finally 恢复依赖并确认 healthy，不停止 MySQL，不做广泛 Redis 清理。具体操作、
+隐私边界和桌面切窗/手机切后台的 30 秒人工焦点验收见 `performance/README.md`。
+
+下一阶段是 Kafka 批量聚合到 MySQL 日表：设计事件幂等键、消费重试、日界线和批量 upsert，
+把 accepted、成功发送和最终落库区分开。当前没有阅读日表消费者，Kafka 发送失败可能丢失
+已计入的 credit；监控暴露这种差异，不能宣称已经具备完整的精确阅读时长统计。
