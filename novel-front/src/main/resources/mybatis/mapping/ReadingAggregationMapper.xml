@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.java2nb.novel.mapper.ReadingAggregationMapper">
+
+    <insert id="insertDedupRecords">
+        INSERT IGNORE INTO reading_event_dedup
+            (event_id, event_fingerprint, batch_token, stat_date)
+        VALUES
+        <foreach collection="records" item="record" separator=",">
+            (#{record.eventId}, #{record.eventFingerprint}, #{record.batchToken}, #{record.statDate})
+        </foreach>
+    </insert>
+
+    <select id="findDedupStates" resultType="com.java2nb.novel.engagement.ReadingDedupState">
+        SELECT event_id, event_fingerprint, batch_token
+        FROM reading_event_dedup
+        WHERE event_id IN
+        <foreach collection="eventIds" item="eventId" open="(" close=")" separator=",">
+            #{eventId}
+        </foreach>
+    </select>
+
+    <insert id="upsertDailyAggregates">
+        INSERT INTO book_reading_daily
+            (stat_date, book_id, credited_seconds, heartbeat_count, first_event_at, last_event_at)
+        VALUES
+        <foreach collection="aggregates" item="aggregate" separator=",">
+            (#{aggregate.statDate}, #{aggregate.bookId}, #{aggregate.creditedSeconds},
+             #{aggregate.heartbeatCount}, #{aggregate.firstEventAt}, #{aggregate.lastEventAt})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            credited_seconds = credited_seconds + VALUES(credited_seconds),
+            heartbeat_count = heartbeat_count + VALUES(heartbeat_count),
+            first_event_at = LEAST(first_event_at, VALUES(first_event_at)),
+            last_event_at = GREATEST(last_event_at, VALUES(last_event_at)),
+            update_time = CURRENT_TIMESTAMP(3)
+    </insert>
+
+    <delete id="deleteDedupBefore">
+        DELETE FROM reading_event_dedup
+        WHERE created_at &lt; #{cutoff}
+        ORDER BY created_at
+        LIMIT #{limit}
+    </delete>
+
+    <delete id="deleteDedupBefore" databaseId="h2">
+        DELETE FROM reading_event_dedup
+        WHERE event_id IN (
+            SELECT event_id
+            FROM reading_event_dedup
+            WHERE created_at &lt; #{cutoff}
+            ORDER BY created_at
+            LIMIT #{limit}
+        )
+    </delete>
+
+</mapper>
