@@ -66,6 +66,7 @@ if (-not (Test-Path -LiteralPath $shardingConfig -PathType Leaf)) {
 }
 
 $jvmArguments = "-XX:TieredStopAtLevel=1 -Duser.dir=`"$runtimeRoot`" -Dspring.profiles.active=$activeProfiles -Dspring.data.redis.port=$RedisPort -Dspring.data.redis.password=$RedisPassword"
+$mavenRepository = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.m2\repository'
 Write-Host "Using Maven: $maven"
 Write-Host "Using runtime configuration: $shardingConfig"
 Write-Host "Activating Spring profiles: $activeProfiles (plus profiles included by application.yml)"
@@ -87,7 +88,7 @@ try {
     & $maven `
         '-pl' 'novel-front' `
         '-DskipTests' `
-        '-Dmaven.repo.local=C:\Users\26635\.m2\repository' `
+        "-Dmaven.repo.local=$mavenRepository" `
         '-Dmaven.compiler.fork=true' `
         "-Dspring-boot.run.jvmArguments=$jvmArguments" `
         'spring-boot:run'

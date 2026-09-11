@@ -132,4 +132,11 @@ foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performan
     if ($parseErrors.Count) { throw "PowerShell syntax errors in $relativePath" }
 }
 
+$startupScript = Join-Path $root 'performance/start-front-monitoring.ps1'
+$startupText = Get-Content -LiteralPath $startupScript -Raw
+if ($startupText -match '(?i)C:\\Users\\[^\\]+\\\.m2\\repository') {
+    throw 'Monitoring startup must not contain a developer-specific Maven repository path.'
+}
+Assert-FileContains $startupScript "GetFolderPath\('UserProfile'\)"
+
 Write-Host 'Observability configuration contract passed.'
