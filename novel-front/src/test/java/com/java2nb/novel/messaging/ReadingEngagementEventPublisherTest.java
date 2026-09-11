@@ -99,6 +99,15 @@ class ReadingEngagementEventPublisherTest {
     }
 
     @Test
+    void recordsEventConstructionFailureWithoutPropagating() {
+        assertThatCode(() -> publisher.publish(
+            42L, 7L, 60, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            .doesNotThrowAnyException();
+
+        assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
+    }
+
+    @Test
     void logsFailureCountWithoutCanaryExceptionDataOrThrowableProxy() {
         RuntimeException canary = new RuntimeException(
             "cookie=canary session=canary pageVisitId=canary ip=canary");

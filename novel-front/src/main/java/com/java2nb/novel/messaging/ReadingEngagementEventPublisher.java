@@ -47,9 +47,9 @@ public class ReadingEngagementEventPublisher {
         Instant occurredAt,
         LocalDate statDate
     ) {
-        ReadingEngagementEvent event = ReadingEngagementEvent.create(
-            bookId, chapterId, creditedSeconds, occurredAt, statDate);
         try {
+            ReadingEngagementEvent event = ReadingEngagementEvent.create(
+                bookId, chapterId, creditedSeconds, occurredAt, statDate);
             kafkaTemplate.send(properties.topic(), bookId, event)
                 .whenComplete((result, failure) -> {
                     if (failure == null) {
