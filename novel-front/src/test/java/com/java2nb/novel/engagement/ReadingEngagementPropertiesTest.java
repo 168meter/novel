@@ -20,7 +20,6 @@ class ReadingEngagementPropertiesTest {
         configuredContext.run(context -> {
             ReadingEngagementProperties properties = context.getBean(ReadingEngagementProperties.class);
 
-            assertThat(properties.topic()).isEqualTo("novel-reading-engagement-v1");
             assertThat(properties.pageTtl()).isEqualTo(Duration.ofHours(2));
             assertThat(properties.rateWindow()).isEqualTo(Duration.ofSeconds(60));
             assertThat(properties.rateKeyTtl()).isEqualTo(Duration.ofMinutes(2));

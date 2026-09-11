@@ -11,7 +11,6 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public class ReadingEngagementProperties {
 
-    private String topic = "novel-reading-engagement-v1";
     private Duration pageTtl = Duration.ofHours(2);
     private Duration rateWindow = Duration.ofSeconds(60);
     private Duration rateKeyTtl = Duration.ofMinutes(2);
@@ -24,14 +23,6 @@ public class ReadingEngagementProperties {
     @NotBlank
     private String ipHmacSecret;
     private Set<String> trustedProxyAddresses = Set.of("127.0.0.1", "::1");
-
-    public String topic() {
-        return topic;
-    }
-
-    public void setTopic(String topic) {
-        this.topic = topic;
-    }
 
     public Duration pageTtl() {
         return pageTtl;

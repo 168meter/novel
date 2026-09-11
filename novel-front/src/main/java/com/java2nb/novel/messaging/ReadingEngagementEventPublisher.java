@@ -1,6 +1,6 @@
 package com.java2nb.novel.messaging;
 
-import com.java2nb.novel.engagement.ReadingEngagementProperties;
+import com.java2nb.novel.config.ReadingEngagementKafkaProperties;
 import com.java2nb.novel.event.ReadingEngagementEvent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -21,14 +21,14 @@ public class ReadingEngagementEventPublisher {
 
     private static final long FAILURE_LOG_INTERVAL = 1000L;
     private final KafkaTemplate<Long, ReadingEngagementEvent> kafkaTemplate;
-    private final ReadingEngagementProperties properties;
+    private final ReadingEngagementKafkaProperties properties;
     private final Counter successCounter;
     private final Counter failedCounter;
     private final AtomicLong failureCount = new AtomicLong();
 
     public ReadingEngagementEventPublisher(
         KafkaTemplate<Long, ReadingEngagementEvent> kafkaTemplate,
-        ReadingEngagementProperties properties,
+        ReadingEngagementKafkaProperties properties,
         MeterRegistry meterRegistry,
         Clock clock
     ) {
