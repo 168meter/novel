@@ -41,6 +41,23 @@ groups:
           summary: Kafka publishing failures detected
           description: At least one book visit event failed to publish during the last five minutes.
 
+      - alert: ReadingEngagementRedisErrors
+        expr: sum(increase(novel_reading_heartbeat_total{result="redis_error"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading engagement Redis errors detected
+          description: The five-minute reading gate error signal has remained positive for one minute.
+
+      - alert: ReadingEngagementKafkaPublishFailures
+        expr: sum(increase(novel_reading_kafka_send_total{result="failed"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading engagement Kafka publishing failed
+          description: At least one accepted reading credit failed to publish during the last five minutes.
+
       - alert: KafkaConsumerLagHigh
         expr: sum(kafka_consumer_fetch_manager_records_lag{topic="novel-book-visit-v1"}) > 10000
         for: 2m

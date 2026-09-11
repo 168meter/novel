@@ -203,3 +203,101 @@ Dashboard 的缓存命中率是完整章节查询的业务命中率，不是 Red
 应用不可用告警演练时，只停止 `novel-front`，不要停止 Prometheus。等待超过一分钟
 后在 Alerts 页面确认 `NovelFrontDown` 进入 firing；重新用启动脚本运行应用后，
 告警应恢复。该演练不需要停止 MySQL、Redis 或 Kafka。
+
+## 阅读参与度运行手册
+
+### 启动与密钥
+
+在当前 worktree 根目录执行；本地 Redis 为 6380/123456、Kafka 为 9092。
+先只读识别 8083/8084 的监听进程与 Actuator health，确认是当前 worktree 的
+novel-front 后，才在原启动窗口 Ctrl+C 并重启。不要停止来源不明的进程。
+
+```powershell
+Get-NetTCPConnection -LocalPort 8083,8084 -State Listen | Select-Object LocalPort,OwningProcess
+Invoke-RestMethod 'http://127.0.0.1:8084/actuator/health'
+docker compose -f '.\compose.local.yml' up -d
+docker compose -f '.\compose.local.yml' ps
+& '.\performance\start-front-monitoring.ps1' -RedisPort '6380' -RedisPassword '123456'
+```
+
+启动脚本依次使用 `-ReadingIpHmacSecret` 参数、已有环境变量
+`NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET`、32-byte CSPRNG 随机值。
+随机值只在本次 Maven/Java 子进程继承的环境中使用；脚本退出时恢复调用进程的原值。
+脚本只报告已生成密钥，不打印密钥，也不把密钥放到 JVM 命令行。
+已有 secret manager 注入环境时直接运行脚本即可；也可用
+`-ReadingIpHmacSecret $secretFromSecretManager`（不要把实际值写入命令历史）。
+
+公网部署必须注入稳定、高熵的 secret，所有应用实例使用一致的值；随机本地值重启后
+会改变 IP HMAC，不能用于公网。应用端口只能由可信 Nginx 访问，防火墙禁止浏览器
+直接访问；Nginx 必须覆盖 `X-Real-IP`，不能透传客户端自报的值，应用只信任明确配置
+的代理地址。Actuator/本地 monitoring Profile 也不得直接暴露到公网。
+
+### 自动验收
+
+在无其他阅读流量的本地实例上先跑普通 smoke。脚本使用独立 WebRequestSession
+保留匿名 Cookie，默认只读查询该书第一个非 VIP 章节，再从真实 HTML 提取页面 token。
+序列 1、重复 1、2 应产生 accepted +2、duplicate +1、credited seconds +60、
+Kafka success +2；发送后最多轮询十秒。HTTP 200 本身不代表计时成功，必须核对这些增量。
+
+```powershell
+& '.\performance\test-observability-config.ps1'
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264
+& '.\performance\check-observability.ps1' -GrafanaUser 'admin' -GrafanaPassword '123456'
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -VerifyIpLimit
+```
+
+已知章节时可加 `-ChapterId 2055884263706857472` 省去数据库查询。
+IP 演练必须在普通 smoke 之后运行：121 个独立 session，逐个加载章节并发送 sequence 1，
+请求固定覆盖 `X-Real-IP: 198.51.100.77`，期望 120 accepted、1 ip_rate_limited。
+全部请求必须在 60 秒窗口内完成；重跑前至少等待 61 秒并停止其他测试流量。
+这会真实发送 120 条测试事件；不做 Redis 清理，页面 key 两小时、限流 key 两分钟、
+日额度 key 两天自然到期。脚本不打印 Cookie、页面 token、Redis key、session hash 或 IP HMAC。
+
+### 故障演练及恢复
+
+仅本地学习环境运行，先确认两个依赖健康；每个演练一次只停止一个依赖，并在
+`finally` 中启动它、最长 120 秒确认 healthy。MySQL 始终保持运行，不改数据库，
+不使用 KEYS、SCAN、通配符删除或 FLUSH。Docker 权限不可用时预检直接失败。
+
+```powershell
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -FailureDrill Redis
+& '.\performance\check-reading-engagement.ps1' -BookId 2055879962859147264 -FailureDrill Kafka
+docker compose -f '.\compose.local.yml' ps
+```
+
+Redis 演练先正常读一次章节，停 Redis 后再次读取，验证 HTTP 200、正文元素仍存在、
+没有 readingPageVisitId/data-page-visit-id。Redis 故障时页面继续经数据库读取，
+注册失败只禁用心跳；已持有 token 的心跳会计入 redis_error，不获得 credit。
+Kafka 演练在 Redis 健康时获得新 token，Kafka 停机后发两个心跳，响应仍应 HTTP 200，
+最终 failed +2。脚本为异步失败回调最多等待 150 秒；本地 delivery.timeout.ms 为 3000。
+已获 credit 不回滚、不同步回退写 MySQL，也没有补发保证；failed 表示需要关注的事件损失。
+如果 finally 无法恢复，立即 `docker start novel-redis` 或 `docker start novel-kafka`，
+再用 `docker compose -f '.\compose.local.yml' ps` 确认 healthy，期间不继续下一项演练。
+
+### 指标、隐私与手动焦点测试
+
+`novel_reading_heartbeat_total` 的有限 result 值为 accepted、duplicate、invalid_page、
+session_rate_limited、ip_rate_limited、daily_cap_reached、redis_error。
+`novel_reading_credited_seconds_total` 只计服务器接受的秒数；
+`novel_reading_kafka_send_total` 的 result 仅 success/failed，代表最终发送确认。
+`novel_reading_redis_gate_seconds` 观察原子 gate 的耗时。
+Grafana 增加 Reading Heartbeat Outcomes、Reading Credited Seconds / s、Reading Kafka Send / s。
+已有监控容器运行时，更新规则后执行 `docker compose -f '.\compose.local.yml' restart prometheus`；
+Grafana 会轮询已挂载的 dashboard 文件。两者必须挂载当前 worktree 的 monitoring 目录；
+旧目录启动的监控容器需要先切换到本 worktree 部署，再验证新面板与规则确实加载。
+ReadingEngagementRedisErrors 对最近五分钟错误信号持续为正一分钟告警；
+ReadingEngagementKafkaPublishFailures 无额外等待，在评估到五分钟内发送失败时告警。
+这些 PromQL 只按有限 result 聚合，不含书籍、章节、Cookie、hash、IP 等高基数标签。
+
+桌面浏览器与移动端分别打开可读章节，Network 过滤 heartbeat：保持页面可见且有焦点
+完整 30 秒才出现 sequence 1；20 秒时切走应舍弃不足 30 秒的片段，返回后重计完整
+30 秒。桌面测试切换窗口、标签页；移动端测试切后台、锁屏再返回。离开页面不补发，
+网络失败不立即重试，下一次完整活跃周期才发送递增 sequence。普通 smoke 不执行浏览器
+JavaScript，因此不能替代这项人工验收。
+
+7 天 Cookie 是匿名浏览器近似身份，并不识别真实的人：同人多浏览器/清 Cookie 可重复，
+多人共用浏览器会合并。Cookie 生命周期与服务端日聚合相互独立：Cookie 可跨日继续用，
+statDate 按 Asia/Shanghai 服务端日期逐日计算；每日额度按匿名 session + 书 + 章节限制。
+Redis 中只保留必要的短期散列/限流状态，Kafka 事件不含 Cookie、session hash、IP HMAC 或原始 IP；
+日志和 Prometheus 不引入这些身份字段。下一阶段再将 Kafka 消息批量聚合到 MySQL 日表，
+明确幂等消费、日界线、重试和丢失语义；本阶段没有日表消费者，不把 accepted 当作已落库统计。
