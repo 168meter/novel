@@ -3,7 +3,7 @@ package com.java2nb.novel.messaging;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.read.ListAppender;
-import com.java2nb.novel.engagement.ReadingEngagementProperties;
+import com.java2nb.novel.config.ReadingEngagementKafkaProperties;
 import com.java2nb.novel.event.ReadingEngagementEvent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -37,7 +37,8 @@ class ReadingEngagementEventPublisherTest {
     void setUp() {
         kafkaTemplate = mock(KafkaTemplate.class);
         registry = new SimpleMeterRegistry();
-        ReadingEngagementProperties properties = new ReadingEngagementProperties();
+        ReadingEngagementKafkaProperties properties = new ReadingEngagementKafkaProperties();
+        properties.setTopic("custom-reading-topic");
         Clock clock = Clock.fixed(Instant.parse("2026-09-10T00:00:00Z"), ZoneOffset.UTC);
         publisher = new ReadingEngagementEventPublisher(kafkaTemplate, properties, registry, clock);
     }
@@ -46,13 +47,13 @@ class ReadingEngagementEventPublisherTest {
     void publishesPrivacyMinimizedEventAndRecordsSuccess() {
         @SuppressWarnings("unchecked")
         SendResult<Long, ReadingEngagementEvent> sendResult = mock(SendResult.class);
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.completedFuture(sendResult));
 
         publisher.publish(42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10));
 
         var eventCaptor = org.mockito.ArgumentCaptor.forClass(ReadingEngagementEvent.class);
-        verify(kafkaTemplate).send(eq("novel-reading-engagement-v1"), eq(42L), eventCaptor.capture());
+        verify(kafkaTemplate).send(eq("custom-reading-topic"), eq(42L), eventCaptor.capture());
         ReadingEngagementEvent event = eventCaptor.getValue();
         assertThat(event.bookId()).isEqualTo(42L);
         assertThat(event.chapterId()).isEqualTo(7L);
@@ -64,7 +65,7 @@ class ReadingEngagementEventPublisherTest {
 
     @Test
     void recordsAsynchronousSendFailureWithoutPropagating() {
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker unavailable")));
 
         assertThatCode(() -> publisher.publish(
@@ -76,7 +77,7 @@ class ReadingEngagementEventPublisherTest {
 
     @Test
     void recordsSynchronousSendFailureWithoutPropagating() {
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenThrow(new KafkaException("metadata unavailable"));
 
         assertThatCode(() -> publisher.publish(
@@ -88,7 +89,7 @@ class ReadingEngagementEventPublisherTest {
 
     @Test
     void recordsNonKafkaRuntimeSendFailureWithoutPropagating() {
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenThrow(new IllegalStateException("producer state unavailable"));
 
         assertThatCode(() -> publisher.publish(
@@ -111,7 +112,7 @@ class ReadingEngagementEventPublisherTest {
     void logsFailureCountWithoutCanaryExceptionDataOrThrowableProxy() {
         RuntimeException canary = new RuntimeException(
             "cookie=canary session=canary pageVisitId=canary ip=canary");
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.failedFuture(canary));
         Logger logger = (Logger) LoggerFactory.getLogger(ReadingEngagementEventPublisher.class);
         ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ListAppender<>();
@@ -138,7 +139,7 @@ class ReadingEngagementEventPublisherTest {
 
     @Test
     void rateLimitsWarningsToFirstAndThousandthFailure() {
-        when(kafkaTemplate.send(eq("novel-reading-engagement-v1"), eq(42L), any(ReadingEngagementEvent.class)))
+        when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker overloaded")));
         Logger logger = (Logger) LoggerFactory.getLogger(ReadingEngagementEventPublisher.class);
         ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender = new ListAppender<>();
