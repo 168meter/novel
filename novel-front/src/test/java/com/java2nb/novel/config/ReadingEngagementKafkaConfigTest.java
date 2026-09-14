@@ -165,4 +165,27 @@ class ReadingEngagementKafkaConfigTest {
             LocalDate.of(2026, 9, 10));
         return new ConsumerRecord<>("novel-reading-engagement-v1", partition, offset, 42L, event);
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void countsWholeBatchAndIndexedRecordRetriesButNotInitialDelivery() {
+        var registry = new SimpleMeterRegistry();
+        var handler = new ReadingEngagementKafkaConfig(new ReadingEngagementKafkaProperties())
+            .readingEngagementErrorHandler(mock(KafkaTemplate.class), registry);
+        java.util.List<org.springframework.kafka.listener.RetryListener> listeners =
+            ReflectionTestUtils.invokeMethod(handler, "getRetryListeners");
+        assertThat(listeners).hasSize(1);
+        var listener = listeners.get(0);
+        var records = new org.apache.kafka.clients.consumer.ConsumerRecords<Long, ReadingEngagementEvent>(
+            Map.of(new org.apache.kafka.common.TopicPartition("novel-reading-engagement-v1", 0),
+                java.util.List.of(record(0, 1L), record(0, 2L))));
+        var failure = new IllegalStateException("database unavailable");
+        listener.failedDelivery(records, failure, 1);
+        listener.failedDelivery(record(0, 1L), failure, 1);
+        assertThat(registry.counter("novel.reading.kafka.retry").count()).isZero();
+        listener.failedDelivery(records, failure, 2);
+        assertThat(registry.counter("novel.reading.kafka.retry").count()).isEqualTo(1);
+        listener.failedDelivery(record(0, 1L), failure, 2);
+        assertThat(registry.counter("novel.reading.kafka.retry").count()).isEqualTo(2);
+    }
 }
