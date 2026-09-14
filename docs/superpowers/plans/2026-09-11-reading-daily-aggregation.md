@@ -219,11 +219,12 @@ git commit -m "feat: persist reading batches idempotently"
 
 **Files:**
 - Create: `novel-front/src/main/java/com/java2nb/novel/messaging/ReadingEngagementConsumer.java`
+- Modify: `novel-front/src/main/java/com/java2nb/novel/config/ReadingEngagementKafkaConfig.java` (dedicated reading DLT producer/template, preserving failed raw keys/values as bytes)
 - Test: `ReadingEngagementConsumerTest.java`, `ReadingEngagementKafkaIT.java`
 
 - [ ] **Step 1: Write failing consumer tests**
 
-Require listener topic/group with `containerFactory="readingEngagementKafkaListenerContainerFactory"`. For `[valid,invalid,later]`, require `BatchListenerFailedException` index 1 and no writer call. Translate writer conflict ID to the original index. Increment committed metrics only after writer success.
+Require listener topic/group with `containerFactory="readingEngagementKafkaListenerContainerFactory"`. For `[valid,invalid,later]`, persist the valid prefix before throwing `BatchListenerFailedException` index 1; never write the invalid record or suffix. Translate historical writer conflict IDs to their first original index; for a same-batch payload conflict use the first differing occurrence, not the earlier valid occurrence. Persist the prefix after the failed full transaction rolls back. If prefix writing fails, propagate that database exception rather than reporting a later failed index. Increment committed metrics only after each writer success. Cover a second conflict inside the prefix, empty batches, null deserialized values and transient database failures.
 
 - [ ] **Step 2: Run RED**
 
@@ -233,17 +234,19 @@ mvn -pl novel-front -am -Dtest=ReadingEngagementConsumerTest -Dsurefire.failIfNo
 
 - [ ] **Step 3: Implement indexed processing**
 
-Validate in index order, wrap invalid records with their index, invoke injected `ReadingDailyBatchWriter` once, and translate conflict IDs to indices. Emit consumed, deduplicated, persisted seconds, daily rows and batch size from the returned result only.
+Listen with `consumeRecords(List<ConsumerRecord<Long,ReadingEngagementEvent>>)` so both key and value deserialization exception headers are checked. For a header failure, persist only its prior prefix before reporting the original index. Validate values in index order; use `ReadingEventFingerprint` to distinguish the first differing same-ID occurrence when locating a writer conflict. Normal batches invoke the injected `ReadingDailyBatchWriter` once. On validation/conflict failure, process only the prefix via the same indexed path, then throw the failed index. An earlier prefix failure takes precedence. Emit consumed, deduplicated, persisted seconds, daily rows and batch size from successful writer results only. Use finite invalid reasons `validation`, `conflict` and `deserialization`. Never wrap database failures in an indexed exception: no prefix may be acknowledged without a successful transaction.
+
+Create `readingEngagementDltProducerFactory` and `readingEngagementDltKafkaTemplate` as non-default-candidate beans, inheriting Spring Kafka producer connection/security settings. Use `DelegatingByTypeSerializer` for `Long`/`byte[]` keys and reading-event/`byte[]` values; install only this template in the reading recoverer. Embedded Kafka must use the production global `JsonSerializer` for visits and the real dedicated reading DLT template; assert malformed payload bytes are not Base64-encoded. Keep the existing visit producer/recoverer unchanged.
 
 - [ ] **Step 4: Add Embedded Kafka isolation test**
 
-Send valid reading, malformed reading JSON, later valid reading and one visit event. With bounded polling, prove two readings reach only the reading writer, malformed JSON reaches only reading DLT, and the visit reaches only its existing writer.
+Queue valid reading, malformed reading JSON, later valid reading in one partition before starting the reading listener (so the bad record has a real prefix in the same poll). Also send one visit event. With bounded polling and committed-offset checks, prove both valid readings reach only the reading writer, malformed JSON reaches only reading DLT, and the visit reaches only its existing writer. Add semantic-invalid, same-batch-conflict, historical-conflict and invalid-Long-key/valid-value scenarios. Require raw failed key and value byte preservation and no daily row for the invalid-key event; assert exact committed facts, not only HTTP or listener success.
 
 - [ ] **Step 5: Run GREEN and commit**
 
 ```powershell
 mvn -pl novel-front -am "-Dtest=ReadingEngagementKafkaIT,ReadingEngagementConsumerTest,BookVisitEventConsumerTest,BookVisitKafkaConfigTest" -Dsurefire.failIfNoSpecifiedTests=false test
-git add -- novel-front/src/main/java/com/java2nb/novel/messaging/ReadingEngagementConsumer.java novel-front/src/test/java/com/java2nb/novel/messaging/ReadingEngagementConsumerTest.java novel-front/src/test/java/com/java2nb/novel/messaging/ReadingEngagementKafkaIT.java
+git add -- docs/superpowers/plans/2026-09-11-reading-daily-aggregation.md docs/superpowers/specs/2026-09-11-reading-daily-aggregation-design.md novel-front/src/main/java/com/java2nb/novel/config/ReadingEngagementKafkaConfig.java novel-front/src/main/java/com/java2nb/novel/messaging/ReadingEngagementConsumer.java novel-front/src/test/java/com/java2nb/novel/messaging/ReadingEngagementConsumerTest.java novel-front/src/test/java/com/java2nb/novel/messaging/ReadingEngagementKafkaIT.java
 git commit -m "feat: consume reading engagement batches"
 ```
 

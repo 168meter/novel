@@ -11,6 +11,8 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.LongDeserializer;
+import org.apache.kafka.common.serialization.LongSerializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -19,6 +21,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
@@ -26,6 +29,8 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.kafka.support.serializer.DelegatingByTypeSerializer;
 import org.springframework.util.backoff.FixedBackOff;
 
 @Configuration(proxyBeanMethods = false)
@@ -72,9 +77,31 @@ public class ReadingEngagementKafkaConfig {
         return new DefaultKafkaConsumerFactory<>(consumerProperties);
     }
 
+    @Bean(defaultCandidate = false, destroyMethod = "destroy")
+    DefaultKafkaProducerFactory<Object, Object> readingEngagementDltProducerFactory(
+        KafkaProperties kafkaProperties
+    ) {
+        // Deserialization failures carry original bytes; JsonSerializer alone would encode Base64.
+        DelegatingByTypeSerializer keys = new DelegatingByTypeSerializer(Map.of(
+            Long.class, new LongSerializer(), byte[].class, new ByteArraySerializer()));
+        DelegatingByTypeSerializer values = new DelegatingByTypeSerializer(Map.of(
+            ReadingEngagementEvent.class, new JsonSerializer<>(),
+            byte[].class, new ByteArraySerializer()));
+        return new DefaultKafkaProducerFactory<>(
+            kafkaProperties.buildProducerProperties(null), keys, values);
+    }
+
+    @Bean(defaultCandidate = false)
+    KafkaTemplate<Object, Object> readingEngagementDltKafkaTemplate(
+        @Qualifier("readingEngagementDltProducerFactory")
+        DefaultKafkaProducerFactory<Object, Object> producerFactory
+    ) {
+        return new KafkaTemplate<>(producerFactory);
+    }
+
     @Bean(defaultCandidate = false)
     DefaultErrorHandler readingEngagementErrorHandler(
-        KafkaTemplate<Object, Object> kafkaTemplate,
+        @Qualifier("readingEngagementDltKafkaTemplate") KafkaTemplate<Object, Object> kafkaTemplate,
         MeterRegistry meterRegistry
     ) {
         Counter dltCounter = meterRegistry.counter("novel.reading.kafka.dlt");
