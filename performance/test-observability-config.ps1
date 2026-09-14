@@ -183,4 +183,13 @@ foreach ($name in $persistenceAlerts.Keys) {
     if (-not $hold -and $block -match '(?m)^        for:') { throw "Alert must evaluate immediately: $name" }
 }
 
+foreach ($relativePath in @('performance/apply-reading-aggregation-schema.ps1', 'performance/check-reading-daily-aggregation.ps1')) {
+    $path = Join-Path $root $relativePath
+    if (-not (Test-Path -LiteralPath $path)) { throw "Reading acceptance script missing: $relativePath" }
+    $parseErrors = $null
+    $tokens = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count) { throw "Reading acceptance script syntax errors: $relativePath" }
+}
+
 Write-Host 'Observability configuration contract passed.'

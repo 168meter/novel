@@ -128,9 +128,24 @@ public class ReadingEngagementKafkaConfig {
         errorHandler.addNotRetryableExceptions(
             IllegalArgumentException.class,
             ReadingEventConflictException.class);
-        errorHandler.setRetryListeners((record, exception, deliveryAttempt) -> {
-            if (deliveryAttempt > 1) {
-                meterRegistry.counter("novel.reading.kafka.retry").increment();
+        errorHandler.setRetryListeners(new org.springframework.kafka.listener.RetryListener() {
+            @Override
+            public void failedDelivery(org.apache.kafka.clients.consumer.ConsumerRecord<?, ?> record,
+                Exception exception, int deliveryAttempt) {
+                countRetry(deliveryAttempt);
+            }
+
+            @Override
+            public void failedDelivery(org.apache.kafka.clients.consumer.ConsumerRecords<?, ?> records,
+                Exception exception, int deliveryAttempt) {
+                // Generic database failures use the whole-batch fallback callback.
+                countRetry(deliveryAttempt);
+            }
+
+            private void countRetry(int deliveryAttempt) {
+                if (deliveryAttempt > 1) {
+                    meterRegistry.counter("novel.reading.kafka.retry").increment();
+                }
             }
         });
         return errorHandler;

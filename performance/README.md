@@ -301,3 +301,55 @@ statDate 按 Asia/Shanghai 服务端日期逐日计算；每日额度按匿名 s
 Redis 中只保留必要的短期散列/限流状态，Kafka 事件不含 Cookie、session hash、IP HMAC 或原始 IP；
 日志和 Prometheus 不引入这些身份字段。下一阶段再将 Kafka 消息批量聚合到 MySQL 日表，
 明确幂等消费、日界线、重试和丢失语义；本阶段没有日表消费者，不把 accepted 当作已落库统计。
+# Reading daily aggregation schema
+
+## Daily aggregation acceptance
+
+Keep the monitoring frontend running and execute in a second window:
+
+```powershell
+& .\performance\test-reading-daily-script.ps1
+& .\performance\check-reading-daily-aggregation.ps1 -BookId 2055879962859147264
+& .\performance\check-reading-daily-aggregation.ps1 -BookId 2055879962859147264 -FailureDrill Dlt
+& .\performance\check-reading-daily-aggregation.ps1 -BookId 2055879962859147264 -FailureDrill MySql
+```
+
+Run only against the local demo, without concurrent reading traffic or topic/group
+configuration overrides. The MySql drill temporarily stops **only** `novel-mysql`
+and restores it in `finally`; other application operations may fail during it.
+The first command simulates external boundaries; its PASS is not live verification.
+
+Live checks publish UUID events with valid eight-byte Kafka Long keys, verify
+30 seconds / one heartbeat, unchanged identical replay, book/date separation,
+and a drained reading group. Dlt mode checks exactly one new DLT record and its
+event ID, plus a later normal credit. MySql mode requires actual retry metric
+growth before restoration and exactly one resulting credit.
+
+The retry counter records failed redeliveries (attempt > 1), not retry starts.
+An immediately successful retry may never create this series. MySql mode waits
+for a failed retry before restoring the database, defaulting to a bounded 180
+seconds (`-RetryWaitSeconds`, range 60..240). Database connection acquisition,
+exception translation and rollback can each delay the callback. A timeout is
+still a failed acceptance; it is not turned into a warning or a fabricated zero.
+
+Input BookId is SELECT-only for a local chapter. Payloads use randomly generated,
+unoccupied synthetic book IDs and dates 2000-01-01/02, not live business rows.
+Preexisting rows cause refusal rather than an unsafe restore/overwrite.
+Only this run's UUIDs and isolated book/date rows are deleted after successful
+drain. Failed runs retain evidence and replay protection; do not delete those
+rows while messages may still replay. Kafka test/DLT records are retained.
+
+In a local PowerShell window, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& .\performance\test-reading-schema-script.ps1
+& .\performance\apply-reading-aggregation-schema.ps1
+```
+
+The application script requires a healthy `novel-mysql` and targets only its
+`novel_plus` database. It executes `doc/sql/20260911_reading_daily_aggregation.sql`
+using UTF-8. `CREATE TABLE IF NOT EXISTS` preserves existing tables and rows;
+this is initial schema creation, not an upgrade of existing table definitions.
+The behavior test replaces Docker calls and never connects to a database.
+MySQL failures return an error, not a successful application message.
