@@ -125,7 +125,7 @@ $kafkaRule = [regex]::Match($ruleText, '(?ms)^      - alert: ReadingEngagementKa
 if ($redisRule -notmatch '(?m)^        for: 1m\s*$' -or $kafkaRule -match '(?m)^        for:') {
     throw 'Reading Redis alert must wait 1m; reading Kafka alert must evaluate immediately.'
 }
-foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/test-observability-config.ps1')) {
+foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/check-observability.ps1', 'performance/test-observability-config.ps1')) {
     $parseErrors = $null
     $tokens = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $relativePath), [ref]$tokens, [ref]$parseErrors)
@@ -138,5 +138,49 @@ if ($startupText -match '(?i)C:\\Users\\[^\\]+\\\.m2\\repository') {
     throw 'Monitoring startup must not contain a developer-specific Maven repository path.'
 }
 Assert-FileContains $startupScript "GetFolderPath\('UserProfile'\)"
+
+$persistenceQueries = @{
+    'Reading Persisted Seconds / s' = @('sum(rate(novel_reading_kafka_persisted_seconds_total[$__rate_interval]))')
+    'Reading Deduplicated Events / s' = @('sum(rate(novel_reading_kafka_deduplicated_total[$__rate_interval]))')
+    'Reading Daily Rows Updated / s' = @('sum(rate(novel_reading_kafka_daily_rows_updated_total[$__rate_interval]))')
+    'Reading Kafka Retry / DLT' = @('sum(rate(novel_reading_kafka_retry_total[$__rate_interval]))', 'sum(rate(novel_reading_kafka_dlt_total[$__rate_interval]))')
+    'Reading Dedup Cleanup' = @('sum(increase(novel_reading_dedup_cleanup_deleted_total[24h]))', 'sum(increase(novel_reading_dedup_cleanup_failures_total[24h]))')
+}
+foreach ($title in $persistenceQueries.Keys) {
+    $panels = @($dashboard.panels | Where-Object { $_.title -eq $title })
+    if ($panels.Count -ne 1) { throw "Persistence panel must exist exactly once: $title" }
+    foreach ($query in $persistenceQueries[$title]) {
+        if ($query -notin @($panels[0].targets.expr)) { throw "Persistence query missing: $query" }
+    }
+}
+if (@($dashboard.panels.id | Select-Object -Unique).Count -ne $dashboard.panels.Count) {
+    throw 'Dashboard panel IDs must be unique.'
+}
+for ($i = 0; $i -lt $dashboard.panels.Count; $i++) {
+    $a = $dashboard.panels[$i].gridPos
+    for ($j = $i + 1; $j -lt $dashboard.panels.Count; $j++) {
+        $b = $dashboard.panels[$j].gridPos
+        if ($a.x -lt ($b.x + $b.w) -and $b.x -lt ($a.x + $a.w) -and
+            $a.y -lt ($b.y + $b.h) -and $b.y -lt ($a.y + $a.h)) {
+            throw "Dashboard panels overlap: $i and $j"
+        }
+    }
+}
+$persistenceAlerts = @{
+    ReadingConsumerLagHigh = @('sum(kafka_consumer_fetch_manager_records_lag{topic="novel-reading-engagement-v1"}) > 10000', '2m')
+    ReadingConsumerDltGrowth = @('sum(increase(novel_reading_kafka_dlt_total[5m])) > 0', '')
+    ReadingConsumerRetries = @('sum(rate(novel_reading_kafka_retry_total[5m])) > 0', '1m')
+    ReadingConsumerDltPublishFailures = @('sum(increase(novel_reading_kafka_dlt_publish_failures_total[5m])) > 0', '')
+    ReadingDedupCleanupFailures = @('sum(increase(novel_reading_dedup_cleanup_failures_total[24h])) > 0', '')
+}
+foreach ($name in $persistenceAlerts.Keys) {
+    $matches = [regex]::Matches($ruleText, ('(?ms)^      - alert: ' + $name + '\r?\n.*?(?=^      - alert:|\z)'))
+    if ($matches.Count -ne 1) { throw "Persistence alert must exist exactly once: $name" }
+    $block = $matches[0].Value
+    if (-not $block.Contains($persistenceAlerts[$name][0])) { throw "Wrong persistence alert expression: $name" }
+    $hold = $persistenceAlerts[$name][1]
+    if ($hold -and $block -notmatch ('(?m)^        for: ' + $hold + '\s*$')) { throw "Wrong alert hold: $name" }
+    if (-not $hold -and $block -match '(?m)^        for:') { throw "Alert must evaluate immediately: $name" }
+}
 
 Write-Host 'Observability configuration contract passed.'

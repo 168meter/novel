@@ -105,3 +105,45 @@ groups:
         annotations:
           summary: Front executor queue is saturated
           description: The shared front-end executor queue had no remaining capacity for one minute.
+
+      - alert: ReadingConsumerLagHigh
+        expr: sum(kafka_consumer_fetch_manager_records_lag{topic="novel-reading-engagement-v1"}) > 10000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading consumer lag is high
+          description: Reading consumer lag is high; inspect the reading consumer and cleanup metrics.
+
+      - alert: ReadingConsumerDltGrowth
+        expr: sum(increase(novel_reading_kafka_dlt_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading events moved to DLT
+          description: Reading events moved to DLT; inspect the reading consumer and cleanup metrics.
+
+      - alert: ReadingConsumerRetries
+        expr: sum(rate(novel_reading_kafka_retry_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading consumer is retrying
+          description: Reading consumer is retrying; inspect the reading consumer and cleanup metrics.
+
+      - alert: ReadingConsumerDltPublishFailures
+        expr: sum(increase(novel_reading_kafka_dlt_publish_failures_total[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading DLT publishing failed
+          description: Reading DLT publishing failed; inspect the reading consumer and cleanup metrics.
+
+      - alert: ReadingDedupCleanupFailures
+        expr: sum(increase(novel_reading_dedup_cleanup_failures_total[24h])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading dedup cleanup failed
+          description: Reading dedup cleanup failed; inspect the reading consumer and cleanup metrics.
