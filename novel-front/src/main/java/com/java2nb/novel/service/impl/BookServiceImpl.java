@@ -11,6 +11,7 @@ import com.java2nb.novel.core.utils.StringUtil;
 import com.java2nb.novel.entity.Book;
 import com.java2nb.novel.entity.*;
 import com.java2nb.novel.mapper.*;
+import com.java2nb.novel.recommendation.HomeRecommendationService;
 import com.java2nb.novel.service.AuthorService;
 import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.FileService;
@@ -103,24 +104,15 @@ public class BookServiceImpl implements BookService {
 
     private final ThreadPoolExecutor threadPoolExecutor;
 
+    private final HomeRecommendationService homeRecommendationService;
+
     private final IdWorker idWorker = IdWorker.INSTANCE;
 
 
     @SneakyThrows
     @Override
     public Map<String, List<BookSettingVO>> listBookSettingVO() {
-        List<BookSettingVO> list = cacheService.getList(CacheKey.INDEX_BOOK_SETTINGS_KEY, BookSettingVO.class);
-        if (list == null || list.isEmpty()) {
-            list = bookSettingMapper.listVO();
-            if (list.isEmpty()) {
-                //如果首页小说没有被设置，则初始化首页小说设置
-                list = initIndexBookSetting();
-            }
-            cacheService.setObject(CacheKey.INDEX_BOOK_SETTINGS_KEY, list, 3600 * 24);
-        }
-        return list.stream().collect(
-            Collectors.groupingBy(book -> book.getType().toString())
-        );
+        return homeRecommendationService.getHome();
     }
 
 
