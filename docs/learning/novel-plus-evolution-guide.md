@@ -484,6 +484,41 @@ Grafana 三个 Reading 面板分别展示结果速率、计入秒数速率、发
 ReadingEngagementRedisErrors 对五分钟错误信号持续一分钟告警，Kafka 失败告警没有额外等待。
 所有查询仅使用有限 result 标签，不以书籍、章节、匿名身份或 IP 作为维度。
 
+### 首页阅读推荐：快照可观测性与无副作用验收
+
+首页的 type 0/1/4 仍由人工配置决定；type 2 最多 5 本、type 3 最多 6 本，按照最近
+7 天和 15 天的阅读秒数排序。type 3 优先避开 type 2，独立候选不足时允许跨组重复。
+刷新任务五分钟一次，Redis 快照 TTL
+十五分钟。为了区分“算法没有候选”和“监控链路没有上报”，Dashboard 不用
+`or vector(0)` 填补推荐指标缺失值，而是直接展示真实 series。
+
+四个面板精确对应 `novel_home_recommendation_source_total`、
+`novel_home_recommendation_refresh_total`、
+`novel_home_recommendation_generation_seconds` 和
+`novel_home_recommendation_local_age_seconds`。其中 age 是单个 `novel-front` 进程的
+最后一次成功本地快照年龄，最多允许本地回退 24 小时；它不是 Redis 的全局分布式新鲜度。
+Prometheus 在五分钟内出现刷新 `db_error` 时触发
+`HomeRecommendationRefreshDbErrors`，并在 age 超过 900 秒持续五分钟后触发
+`HomeRecommendationSnapshotStale`。
+
+真实本地验收入口如下；它只读首页和排行接口、只对 Redis 单键 GET，并使用 MySQL
+CTE/SELECT 重算同一个 `generatedAt` 窗口，绝不 DEL/SET Redis、修改 `book_setting` 或
+插入伪造阅读积分：
+
+这里执行的是脚本内固定的两条 SQL。正则校验负责防止维护误改，但不能替代数据库权限；
+共享或公网环境仍应使用只有 `SELECT` 权限的独立验收账号。
+
+```powershell
+& '.\performance\test-home-recommendation-script.ps1'
+& '.\performance\check-home-recommendation.ps1' -MySqlPassword '123456' -RedisPassword '123456'
+& '.\performance\check-observability.ps1' -GrafanaPassword 'change-me'
+```
+
+脚本会确认所有 group、上限、动态 sort、组内去重、独立 click/new/update 排行端点，
+并在前后两次读取到不同快照或统计源，或当前数据无法重建快照生成时刻排序时返回
+`INCONCLUSIVE`。这表示现场不足以作确定判断，必须在稳定窗口重试，不能误判为算法
+通过或失败。
+
 真实接口验收入口：
 
 ```powershell

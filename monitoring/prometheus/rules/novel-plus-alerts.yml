@@ -147,3 +147,20 @@ groups:
         annotations:
           summary: Reading dedup cleanup failed
           description: Reading dedup cleanup failed; inspect the reading consumer and cleanup metrics.
+
+      - alert: HomeRecommendationRefreshDbErrors
+        expr: sum(increase(novel_home_recommendation_refresh_total{result="db_error"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Home recommendation refresh database errors detected
+          description: At least one home recommendation refresh failed before Redis publication during the last five minutes.
+
+      - alert: HomeRecommendationSnapshotStale
+        expr: max(novel_home_recommendation_local_age_seconds) > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Home recommendation process-local snapshot is stale
+          description: A novel-front process has reported a successful local recommendation snapshot older than fifteen minutes for five minutes; this gauge does not represent global distributed freshness.

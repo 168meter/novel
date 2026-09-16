@@ -475,6 +475,83 @@
           "mode": "multi"
         }
       }
+    },
+    {
+      "id": 31,
+      "title": "Home Recommendation Sources",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 78 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (source) (rate(novel_home_recommendation_source_total[$__rate_interval]))",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "id": 32,
+      "title": "Home Recommendation Refresh Outcomes",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 78 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(novel_home_recommendation_refresh_total[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "id": 33,
+      "title": "Home Recommendation Generation Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 78 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(novel_home_recommendation_generation_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(novel_home_recommendation_generation_seconds_count[$__rate_interval])), 1e-9)",
+          "legendFormat": "average",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    },
+    {
+      "id": 34,
+      "title": "Home Recommendation Local Snapshot Age",
+      "description": "Age of this novel-front process's last successful local recommendation snapshot; it is not distributed/global freshness.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 78 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "max(novel_home_recommendation_local_age_seconds)",
+          "legendFormat": "oldest process-local snapshot",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
     }
   ],
   "refresh": "10s",

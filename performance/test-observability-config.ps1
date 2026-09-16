@@ -117,6 +117,33 @@ foreach ($title in $readingQueries.Keys) {
         throw "Reading engagement panel or exact query is missing: $title"
     }
 }
+
+$recommendationQueries = @{
+    'Home Recommendation Sources' = @(
+        'sum by (source) (rate(novel_home_recommendation_source_total[$__rate_interval]))'
+    )
+    'Home Recommendation Refresh Outcomes' = @(
+        'sum by (result) (rate(novel_home_recommendation_refresh_total[$__rate_interval]))'
+    )
+    'Home Recommendation Generation Duration' = @(
+        'sum(rate(novel_home_recommendation_generation_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(novel_home_recommendation_generation_seconds_count[$__rate_interval])), 1e-9)'
+    )
+    'Home Recommendation Local Snapshot Age' = @(
+        'max(novel_home_recommendation_local_age_seconds)'
+    )
+}
+foreach ($title in $recommendationQueries.Keys) {
+    $panels = @($dashboard.panels | Where-Object { $_.title -eq $title })
+    if ($panels.Count -ne 1) { throw "Recommendation panel must exist exactly once: $title" }
+    foreach ($query in $recommendationQueries[$title]) {
+        if ($query -notin @($panels[0].targets.expr)) { throw "Recommendation query missing: $query" }
+    }
+    foreach ($query in @($panels[0].targets.expr)) {
+        if ($query -match '(?i)\bor\s+vector\s*\(') {
+            throw "Recommendation panels must expose absent series rather than fabricate zero: $title"
+        }
+    }
+}
 Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_heartbeat_total{result="redis_error"}[5m])) > 0'))
 Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_kafka_send_total{result="failed"}[5m])) > 0'))
 $ruleText = Get-Content -LiteralPath $rules -Raw
@@ -125,7 +152,20 @@ $kafkaRule = [regex]::Match($ruleText, '(?ms)^      - alert: ReadingEngagementKa
 if ($redisRule -notmatch '(?m)^        for: 1m\s*$' -or $kafkaRule -match '(?m)^        for:') {
     throw 'Reading Redis alert must wait 1m; reading Kafka alert must evaluate immediately.'
 }
-foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/check-observability.ps1', 'performance/test-observability-config.ps1')) {
+$recommendationAlerts = @{
+    HomeRecommendationRefreshDbErrors = @('sum(increase(novel_home_recommendation_refresh_total{result="db_error"}[5m])) > 0', '')
+    HomeRecommendationSnapshotStale = @('max(novel_home_recommendation_local_age_seconds) > 900', '5m')
+}
+foreach ($name in $recommendationAlerts.Keys) {
+    $matches = [regex]::Matches($ruleText, ('(?ms)^      - alert: ' + $name + '\r?\n.*?(?=^      - alert:|\z)'))
+    if ($matches.Count -ne 1) { throw "Recommendation alert must exist exactly once: $name" }
+    $block = $matches[0].Value
+    if (-not $block.Contains($recommendationAlerts[$name][0])) { throw "Wrong recommendation alert expression: $name" }
+    $hold = $recommendationAlerts[$name][1]
+    if ($hold -and $block -notmatch ('(?m)^        for: ' + $hold + '\s*$')) { throw "Wrong recommendation alert hold: $name" }
+    if (-not $hold -and $block -match '(?m)^        for:') { throw "Recommendation DB error alert must evaluate immediately: $name" }
+}
+foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/check-observability.ps1', 'performance/check-home-recommendation.ps1', 'performance/test-home-recommendation-script.ps1', 'performance/test-observability-config.ps1')) {
     $parseErrors = $null
     $tokens = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $relativePath), [ref]$tokens, [ref]$parseErrors)

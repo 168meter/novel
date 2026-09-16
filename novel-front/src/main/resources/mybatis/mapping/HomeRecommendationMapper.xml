@@ -15,37 +15,35 @@
         )
     </sql>
     <select id="listCandidates" resultType="com.java2nb.novel.recommendation.PopularBookCandidate">
-        WITH daily AS (
-            SELECT book_id,
-                SUM(CASE WHEN stat_date &gt;= #{weekStart} THEN credited_seconds ELSE 0 END) AS week_seconds,
-                SUM(credited_seconds) AS hot_seconds
-            FROM book_reading_daily
-            WHERE stat_date &gt;= #{hotStart} AND stat_date &lt; #{endExclusive}
-            GROUP BY book_id
-        ), ranked AS (
+        SELECT book_id,book_name,author_name,pic_url,book_desc,score,cat_id,cat_name,book_status,
+            week_seconds,hot_seconds,visit_count
+        FROM (
             SELECT b.id AS book_id,<include refid="metadata"/>,
                 d.week_seconds,d.hot_seconds,COALESCE(b.visit_count,0) AS visit_count,
                 ROW_NUMBER() OVER (ORDER BY d.week_seconds DESC,COALESCE(b.visit_count,0) DESC,b.id ASC) AS week_rank,
                 ROW_NUMBER() OVER (ORDER BY d.hot_seconds DESC,COALESCE(b.visit_count,0) DESC,b.id ASC) AS hot_rank
-            FROM daily d INNER JOIN book b ON b.id=d.book_id
+            FROM (
+                SELECT book_id,
+                    SUM(CASE WHEN stat_date &gt;= #{weekStart} THEN credited_seconds ELSE 0 END) AS week_seconds,
+                    SUM(credited_seconds) AS hot_seconds
+                FROM book_reading_daily
+                WHERE stat_date &gt;= #{hotStart} AND stat_date &lt; #{endExclusive}
+                GROUP BY book_id
+            ) d INNER JOIN book b ON b.id=d.book_id
             WHERE <include refid="readable"/>
-        )
-        SELECT book_id,book_name,author_name,pic_url,book_desc,score,cat_id,cat_name,book_status,
-            week_seconds,hot_seconds,visit_count
-        FROM ranked
+        ) ranked
         WHERE (week_seconds &gt; 0 AND week_rank &lt;= 5) OR (hot_seconds &gt; 0 AND hot_rank &lt;= 11)
         ORDER BY book_id
     </select>
     <select id="listConfigured" resultType="com.java2nb.novel.vo.BookSettingVO">
-        WITH configured AS (
+        SELECT id,book_id,type,sort,book_name,author_name,pic_url,book_desc,score,cat_id,cat_name,book_status
+        FROM (
             SELECT s.id,s.book_id,s.type,s.sort,<include refid="metadata"/>,
                 ROW_NUMBER() OVER (PARTITION BY s.type ORDER BY s.sort,s.id) AS slot_rank
             FROM book_setting s INNER JOIN book b ON b.id=s.book_id
             WHERE s.type IN (0,1,2,3,4)
               AND (s.type IN (0,1,4) OR (<include refid="readable"/>))
-        )
-        SELECT id,book_id,type,sort,book_name,author_name,pic_url,book_desc,score,cat_id,cat_name,book_status
-        FROM configured
+        ) configured
         WHERE slot_rank &lt;= CASE type WHEN 0 THEN 4 WHEN 1 THEN 10 WHEN 2 THEN 5 ELSE 6 END
         ORDER BY type,sort,id
     </select>

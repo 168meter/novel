@@ -56,7 +56,11 @@ foreach ($metric in @(
     'novel_reading_kafka_persisted_seconds_total', 'novel_reading_kafka_deduplicated_total',
     'novel_reading_kafka_daily_rows_updated_total',
     'novel_reading_kafka_dlt_total', 'novel_reading_kafka_dlt_publish_failures_total',
-    'novel_reading_dedup_cleanup_deleted_total', 'novel_reading_dedup_cleanup_failures_total'
+    'novel_reading_dedup_cleanup_deleted_total', 'novel_reading_dedup_cleanup_failures_total',
+    'novel_home_recommendation_local_age_seconds',
+    'novel_home_recommendation_refresh_total',
+    'novel_home_recommendation_generation_seconds_count',
+    'novel_home_recommendation_source_total'
 )) {
     $series = Invoke-PrometheusQuery $metric
     if ($series.Count -eq 0) {
@@ -109,6 +113,8 @@ $expectedAlerts = @(
     'ReadingConsumerRetries'
     'ReadingConsumerDltPublishFailures'
     'ReadingDedupCleanupFailures'
+    'HomeRecommendationRefreshDbErrors'
+    'HomeRecommendationSnapshotStale'
 )
 foreach ($alert in $expectedAlerts) {
     if ($alert -notin $loadedAlerts) {
@@ -140,6 +146,8 @@ foreach ($panelTitle in @(
     'Front Executor Utilization', 'Front Executor Queue / Rejections',
     'Reading Persisted Seconds / s', 'Reading Deduplicated Events / s',
     'Reading Daily Rows Updated / s', 'Reading Kafka Retry / DLT', 'Reading Dedup Cleanup'
+    'Home Recommendation Sources', 'Home Recommendation Refresh Outcomes',
+    'Home Recommendation Generation Duration', 'Home Recommendation Local Snapshot Age'
 )) {
     if ($panelTitle -notin $panelTitles) {
         throw "Grafana executor panel is missing: $panelTitle"
