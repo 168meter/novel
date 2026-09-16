@@ -11,11 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
+@Slf4j
 public class HomeRecommendationService {
     static final String REDIS_KEY="novel:home:reading-recommendation:v1";
     private static final Duration REDIS_TTL=Duration.ofMinutes(15);
@@ -36,12 +37,10 @@ public class HomeRecommendationService {
     private final AtomicReference<Encoded> local=new AtomicReference<>();
     private final AtomicReference<Fallback> fallback=new AtomicReference<>();
     private final ReentrantLock fallbackLock=new ReentrantLock();
-    private final AtomicLong localAgeSeconds=new AtomicLong(-1);
-
     public HomeRecommendationService(Clock clock,HomeRecommendationMapper mapper,
         HomeRecommendationAssembler assembler,StringRedisTemplate redis,ObjectMapper json,MeterRegistry meters) {
         this.clock=clock; this.mapper=mapper; this.assembler=assembler; this.redis=redis; this.json=json; this.meters=meters;
-        meters.gauge("novel.home.recommendation.local.age.seconds",localAgeSeconds);
+        meters.gauge("novel.home.recommendation.local.age.seconds",this,HomeRecommendationService::localSnapshotAgeSeconds);
     }
 
     public Map<String,List<BookSettingVO>> getHome() {
@@ -51,14 +50,13 @@ public class HomeRecommendationService {
             Snapshot snapshot=decodeValid(encoded,now);
             if(snapshot!=null) {
                 local.set(new Encoded(encoded,snapshot.generatedAt()));
-                localAgeSeconds.set(Duration.between(snapshot.generatedAt(),now).toSeconds());
                 source("redis"); return copy(snapshot.groups());
             }
         } catch(RuntimeException ignored) { }
         Encoded saved=local.get();
         if(saved!=null && ageValid(saved.generatedAt(),now)) {
             Snapshot snapshot=decodeValid(saved.json(),now);
-            if(snapshot!=null) { localAgeSeconds.set(Duration.between(snapshot.generatedAt(),now).toSeconds()); source("local"); return copy(snapshot.groups()); }
+            if(snapshot!=null) { source("local"); return copy(snapshot.groups()); }
         }
         return configuredFallback(now);
     }
@@ -74,11 +72,12 @@ public class HomeRecommendationService {
             encoded=json.writeValueAsString(new Snapshot(1,now,assembler.compose(candidates,configured)));
             if(decodeValid(encoded,now)==null) throw new IllegalStateException("generated invalid recommendation snapshot");
         } catch(Exception failure) {
+            log.warn("Home recommendation refresh failed before snapshot publication",failure);
             meters.counter("novel.home.recommendation.refresh","result","db_error").increment();
             meters.timer("novel.home.recommendation.generation").record(System.nanoTime()-started,TimeUnit.NANOSECONDS);
             return;
         }
-        local.set(new Encoded(encoded,now)); localAgeSeconds.set(0);
+        local.set(new Encoded(encoded,now));
         try {
             redis.opsForValue().set(REDIS_KEY,encoded,REDIS_TTL);
             meters.counter("novel.home.recommendation.refresh","result","success").increment();
@@ -133,6 +132,11 @@ public class HomeRecommendationService {
     }
 
     private boolean ageValid(Instant generated,Instant now) { return !generated.isAfter(now) && Duration.between(generated,now).compareTo(MAX_LOCAL_AGE)<=0; }
+    private double localSnapshotAgeSeconds() {
+        Encoded saved=local.get();
+        if(saved==null) return -1;
+        return Math.max(0,Duration.between(saved.generatedAt(),clock.instant()).toSeconds());
+    }
     private Map<String,List<BookSettingVO>> copy(Map<String,List<BookSettingVO>> groups) {
         try {
             String encoded=json.writeValueAsString(new Snapshot(1,clock.instant(),groups));

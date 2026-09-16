@@ -200,6 +200,39 @@ Grafana 会自动加载 `Novel-Plus Overview`，不需要手动创建数据源�
 Dashboard 的缓存命中率是完整章节查询的业务命中率，不是 Redis 服务所有命令的
 全局命中率。告警阈值只用于本地演示和故障发现，上线前必须根据真实流量基线调整。
 
+### 首页阅读推荐：监控与只读验收
+
+推荐刷新每五分钟执行一次，Redis 快照 TTL 为十五分钟。Dashboard 的四个推荐面板分别
+展示 `novel_home_recommendation_source_total` 的来源速率、
+`novel_home_recommendation_refresh_total` 的刷新结果、
+`novel_home_recommendation_generation_seconds` 的平均生成耗时，以及
+`novel_home_recommendation_local_age_seconds` 的最大值。最后一个 gauge 仅表示各
+`novel-front` 进程最后一次成功生成的本地快照年龄，不能当作多实例 Redis 快照的全局
+新鲜度。不要为了看见数值而用 `or vector(0)` 伪造缺失的运行时 series。
+
+`HomeRecommendationRefreshDbErrors` 在五分钟窗口出现 `db_error` 即告警；
+`HomeRecommendationSnapshotStale` 在本地年龄超过 900 秒并持续五分钟后告警。
+运行时检查会要求这些指标已有真实 series，并验证两条规则和四个面板已经由
+Prometheus/Grafana provisioning 加载。
+
+在本地依赖和 monitoring 前端已启动时，以下验收只发 HTTP GET，只对 Redis 执行单键
+GET，并只向 MySQL 发 CTE/SELECT；它不会刷新快照、删除/写入 Redis、改写
+`book_setting` 或伪造阅读 credit：
+
+脚本中的两条 SQL 是固定查询；正则 guard 只用于阻止维护时误改，不是数据库权限边界。
+若在共享或公网数据库运行，应另行使用仅授予 `SELECT` 的验收账号。
+
+```powershell
+& '.\performance\test-home-recommendation-script.ps1'
+& '.\performance\check-home-recommendation.ps1' -MySqlPassword '123456' -RedisPassword '123456'
+& '.\performance\check-observability.ps1' -GrafanaPassword 'change-me'
+```
+
+验收会比较首页分组、Redis 快照与基于该快照 `generatedAt` 窗口的 SQL 排序，并确认
+click/new/update 排行接口各自可用。若前后读取发生变化，或当前数据已无法重建
+`generatedAt` 时刻的快照排序，脚本会以 `INCONCLUSIVE` 结束；停止并在没有并发刷新、
+阅读统计或配置变动时重试，不能把它报告为算法通过或失败。
+
 应用不可用告警演练时，只停止 `novel-front`，不要停止 Prometheus。等待超过一分钟
 后在 Alerts 页面确认 `NovelFrontDown` 进入 firing；重新用启动脚本运行应用后，
 告警应恢复。该演练不需要停止 MySQL、Redis 或 Kafka。

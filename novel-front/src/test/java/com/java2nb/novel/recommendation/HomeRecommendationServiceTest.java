@@ -88,6 +88,17 @@ class HomeRecommendationServiceTest {
         assertThat(meters.find("novel.home.recommendation.generation").timer().count()).isEqualTo(1);
     }
 
+    @Test void localSnapshotAgeGaugeAdvancesWithClockWithoutHomeTrafficAndClampsClockRollback() {
+        var age=meters.find("novel.home.recommendation.local.age.seconds").gauge();
+        assertThat(age.value()).isEqualTo(-1.0);
+        service.refresh();
+        assertThat(age.value()).isEqualTo(0.0);
+        clock.advance(Duration.ofMinutes(2));
+        assertThat(age.value()).isEqualTo(120.0);
+        clock.advance(Duration.ofMinutes(-3));
+        assertThat(age.value()).isEqualTo(0.0);
+    }
+
     @Test void expiredLocalSnapshotFallsBackToConfiguredRows() {
         service.refresh(); when(values.get(anyString())).thenReturn(null);
         clock.advance(Duration.ofHours(25)); when(mapper.listConfigured()).thenReturn(List.of(book(2,0)));

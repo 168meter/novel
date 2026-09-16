@@ -3,8 +3,11 @@ package com.java2nb.novel.recommendation;
 import com.java2nb.novel.vo.BookSettingVO;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import javax.sql.DataSource;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.datasource.pooled.PooledDataSource;
 import org.apache.ibatis.io.Resources;
@@ -16,6 +19,7 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.apache.shardingsphere.driver.api.yaml.YamlShardingSphereDataSourceFactory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class HomeRecommendationMapperTest {
@@ -26,6 +30,7 @@ class HomeRecommendationMapperTest {
     void setUp() throws Exception {
         source = new PooledDataSource("org.h2.Driver",
             "jdbc:h2:mem:home_recommendation;MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
+        source.setDefaultAutoCommit(true);
         sql("DROP ALL OBJECTS",
             "CREATE TABLE book(id BIGINT PRIMARY KEY,book_name VARCHAR(50),author_name VARCHAR(50),"
                 + "pic_url VARCHAR(100),book_desc VARCHAR(100),score REAL,cat_id INT,cat_name VARCHAR(50),"
@@ -35,13 +40,17 @@ class HomeRecommendationMapperTest {
             "CREATE TABLE book_setting(id BIGINT PRIMARY KEY,book_id BIGINT,type TINYINT,sort TINYINT)",
             "CREATE TABLE book_reading_daily(book_id BIGINT,stat_date DATE,credited_seconds DECIMAL(30,0),"
                 + "PRIMARY KEY(stat_date,book_id))");
-        Configuration config = new Configuration(new Environment("test", new JdbcTransactionFactory(), source));
+        factory = mapperFactory(source);
+    }
+
+    private SqlSessionFactory mapperFactory(DataSource dataSource) throws Exception {
+        Configuration config = new Configuration(new Environment("test", new JdbcTransactionFactory(), dataSource));
         config.setMapUnderscoreToCamelCase(true);
         try (var stream = Resources.getResourceAsStream("mybatis/mapping/HomeRecommendationMapper.xml")) {
             new XMLMapperBuilder(stream, config, "mybatis/mapping/HomeRecommendationMapper.xml",
                 config.getSqlFragments()).parse();
         }
-        factory = new SqlSessionFactoryBuilder().build(config);
+        return new SqlSessionFactoryBuilder().build(config);
     }
 
     @AfterEach
@@ -101,6 +110,36 @@ class HomeRecommendationMapperTest {
             assertThat(group(rows, 2)).containsExactly(202L,203L,204L,205L,206L);
             assertThat(group(rows, 3)).containsExactly(302L,303L,304L,305L,306L,307L);
             assertThat(group(rows, 4)).containsExactly(401L,402L,403L,404L,405L,406L);
+        }
+    }
+
+    @Test
+    void queriesExecuteThroughShardingSphereMetadataLayer() throws Exception {
+        book(1, 10);
+        credit(1, "2026-09-15", 30);
+        sql("INSERT INTO book_setting VALUES(1,1,0,1)");
+        String yaml = """
+            mode:
+              type: Memory
+            rules:
+              - !SINGLE
+                tables:
+                  - "ds_1.*"
+            props:
+              sql-show: false
+            """;
+        DataSource wrapped = YamlShardingSphereDataSourceFactory.createDataSource(
+            Map.of("ds_1", source), yaml.getBytes(StandardCharsets.UTF_8));
+        try {
+            SqlSessionFactory shardingFactory = mapperFactory(wrapped);
+            try (var session = shardingFactory.openSession()) {
+                HomeRecommendationMapper mapper = session.getMapper(HomeRecommendationMapper.class);
+                assertThat(mapper.listConfigured()).extracting(BookSettingVO::getBookId).containsExactly(1L);
+                assertThat(mapper.listCandidates(LocalDate.of(2026,9,9), LocalDate.of(2026,9,1),
+                    LocalDate.of(2026,9,16))).extracting(BookSettingVO::getBookId).containsExactly(1L);
+            }
+        } finally {
+            if (wrapped instanceof AutoCloseable closeable) closeable.close();
         }
     }
 
