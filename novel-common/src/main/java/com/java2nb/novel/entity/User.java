@@ -6,6 +6,7 @@ import jakarta.validation.constraints.*;
 
 import javax.annotation.Generated;
 import java.util.Date;
+import java.time.LocalDateTime;
 
 public class User {
 
@@ -14,8 +15,6 @@ public class User {
     private Long id;
 
 
-    @NotBlank(groups = {AddGroup.class}, message = "手机号不能为空！")
-    @Pattern(groups = {AddGroup.class}, regexp = "^1[3|4|5|6|7|8|9][0-9]{9}$", message = "手机号格式不正确！")
     @Null(groups = {UpdateGroup.class})
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
     private String username;
@@ -24,6 +23,24 @@ public class User {
     @Null(groups = {UpdateGroup.class})
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
     private String password;
+
+    @Null(groups = {AddGroup.class, UpdateGroup.class})
+    private String email;
+    @Null(groups = {AddGroup.class, UpdateGroup.class})
+    private String passwordAlgorithm;
+    @Null(groups = {AddGroup.class, UpdateGroup.class})
+    private Long tokenVersion;
+    @Null(groups = {AddGroup.class, UpdateGroup.class})
+    private LocalDateTime emailVerifiedAt;
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getPasswordAlgorithm() { return passwordAlgorithm; }
+    public void setPasswordAlgorithm(String passwordAlgorithm) { this.passwordAlgorithm = passwordAlgorithm; }
+    public Long getTokenVersion() { return tokenVersion; }
+    public void setTokenVersion(Long tokenVersion) { this.tokenVersion = tokenVersion; }
+    public LocalDateTime getEmailVerifiedAt() { return emailVerifiedAt; }
+    public void setEmailVerifiedAt(LocalDateTime emailVerifiedAt) { this.emailVerifiedAt = emailVerifiedAt; }
 
     @Null(groups = {AddGroup.class})
     @Pattern(groups = {
@@ -86,7 +103,7 @@ public class User {
 
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
     public void setPassword(String password) {
-        this.password = password == null ? null : password.trim();
+        this.password = password;
     }
 
     @Generated("org.mybatis.generator.api.MyBatisGenerator")

@@ -2403,8 +2403,12 @@ DROP TABLE IF EXISTS `user`;
 CREATE TABLE `user`
 (
     `id`              bigint(20)   NOT NULL AUTO_INCREMENT COMMENT '主键',
-    `username`        varchar(50)  NOT NULL COMMENT '登录名',
-    `password`        varchar(100) NOT NULL COMMENT '登录密码',
+    `username`        varchar(50)  DEFAULT NULL COMMENT '历史登录名',
+    `password`        varchar(255) NOT NULL COMMENT '登录密码哈希',
+    `email`           varchar(254) DEFAULT NULL,
+    `password_algorithm` varchar(20) NOT NULL DEFAULT 'ARGON2ID',
+    `token_version`   bigint NOT NULL DEFAULT 0,
+    `email_verified_at` datetime DEFAULT NULL,
     `nick_name`       varchar(50)           DEFAULT NULL COMMENT '昵称',
     `user_photo`      varchar(100)          DEFAULT NULL COMMENT '用户头像',
     `user_sex`        tinyint(1)            DEFAULT NULL COMMENT '用户性别，0：男，1：女',
@@ -2413,7 +2417,8 @@ CREATE TABLE `user`
     `create_time`     datetime     NOT NULL COMMENT '创建时间',
     `update_time`     datetime     NOT NULL COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `key_uq_username` (`username`) USING BTREE
+    UNIQUE KEY `key_uq_username` (`username`) USING BTREE,
+    UNIQUE KEY `key_uq_email` (`email`) USING BTREE
 ) ENGINE = InnoDB
   AUTO_INCREMENT = 1255664783722586113
   DEFAULT CHARSET = utf8mb4;
@@ -2422,25 +2427,25 @@ CREATE TABLE `user`
 -- Records of user
 -- ----------------------------
 INSERT INTO `user`
-VALUES ('1255060328322027520', '13560421324', 'e10adc3949ba59abbe56e057f20f883e', '13560421324', null, null, '0', '0',
+VALUES ('1255060328322027520', '13560421324', 'e10adc3949ba59abbe56e057f20f883e', null, 'MD5', 0, null, '13560421324', null, null, '0', '0',
         '2020-04-28 17:04:35', '2020-04-28 17:04:35');
 INSERT INTO `user`
-VALUES ('1255379610071322624', '15924184378', '6a204bd89f3c8348afd5c77c717a097a', '15924184378', null, null, '0', '0',
+VALUES ('1255379610071322624', '15924184378', '6a204bd89f3c8348afd5c77c717a097a', null, 'MD5', 0, null, '15924184378', null, null, '0', '0',
         '2020-04-29 14:13:18', '2020-04-29 14:13:18');
 INSERT INTO `user`
-VALUES ('1255396367099031552', '13111111111', 'a4de053ee1e8ba473312b537bc360709', '13111111111', null, null, '0', '0',
+VALUES ('1255396367099031552', '13111111111', 'a4de053ee1e8ba473312b537bc360709', null, 'MD5', 0, null, '13111111111', null, null, '0', '0',
         '2020-04-29 15:19:53', '2020-04-29 15:19:53');
 INSERT INTO `user`
-VALUES ('1255398795835895808', '13333333333', 'a4de053ee1e8ba473312b537bc360709', '13333333333', null, null, '0', '0',
+VALUES ('1255398795835895808', '13333333333', 'a4de053ee1e8ba473312b537bc360709', null, 'MD5', 0, null, '13333333333', null, null, '0', '0',
         '2020-04-29 15:29:32', '2020-04-29 15:29:32');
 INSERT INTO `user`
-VALUES ('1255403074344747008', '13444444444', 'a4de053ee1e8ba473312b537bc360709', '13444444444', null, null, '0', '0',
+VALUES ('1255403074344747008', '13444444444', 'a4de053ee1e8ba473312b537bc360709', null, 'MD5', 0, null, '13444444444', null, null, '0', '0',
         '2020-04-29 15:46:32', '2020-04-29 15:46:32');
 INSERT INTO `user`
-VALUES ('1255426058765852672', '13555555555', 'a4de053ee1e8ba473312b537bc360709', '13555555555', null, null, '0', '0',
+VALUES ('1255426058765852672', '13555555555', 'a4de053ee1e8ba473312b537bc360709', null, 'MD5', 0, null, '13555555555', null, null, '0', '0',
         '2020-04-29 17:17:52', '2020-04-29 17:17:52');
 INSERT INTO `user`
-VALUES ('1255664783722586112', '13560421323', 'e10adc3949ba59abbe56e057f20f883e', '13560421323', null, null, '0', '0',
+VALUES ('1255664783722586112', '13560421323', 'e10adc3949ba59abbe56e057f20f883e', null, 'MD5', 0, null, '13560421323', null, null, '0', '0',
         '2020-04-30 09:06:28', '2020-04-30 09:06:28');
 
 -- ----------------------------
