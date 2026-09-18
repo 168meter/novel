@@ -57,11 +57,11 @@ spring:
       image:
         enabled: true
         base-url: https://api.siliconflow.cn
-        api-key: sk-rrrupturhdofbiqzjutduuiceecpvfqlnvmgcyiaipbdikoi
+        api-key: ${NOVEL_AI_API_KEY:}
         options:
           model: Kwai-Kolors/Kolors
           response_format: URL
-      api-key: sk-rrrupturhdofbiqzjutduuiceecpvfqlnvmgcyiaipbdikoi
+      api-key: ${NOVEL_AI_API_KEY:}
       base-url: https://api.siliconflow.cn
       chat:
         options:

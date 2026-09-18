@@ -52,6 +52,18 @@ function Resolve-MavenCommand([string]$RequestedCommand) {
     throw 'Maven was not found. Add mvn to PATH, set MAVEN_HOME, or pass -MavenCommand with the full mvn.cmd path.'
 }
 
+$requiredEnvironmentVariables = @(
+    'JWT_SECRET'
+    'CACHE_MANAGER_PASSWORD'
+    'NOVEL_AUTH_HMAC_SECRET'
+)
+foreach ($variableName in $requiredEnvironmentVariables) {
+    $value = [Environment]::GetEnvironmentVariable($variableName, 'Process')
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        throw "Required environment variable is missing: $variableName"
+    }
+}
+
 $maven = Resolve-MavenCommand $MavenCommand
 $gitCommonDirectory = (& git -C $root rev-parse --path-format=absolute --git-common-dir 2>$null)
 if ($LASTEXITCODE -eq 0 -and $gitCommonDirectory) {

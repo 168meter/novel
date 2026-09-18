@@ -164,6 +164,30 @@ performance/results/book-visit-kafka-summary.md。
 `monitoring` Profile 会让 Docker 通过 `host.docker.internal:8084` 抓取 Actuator；
 不要在公网环境启用这个仅供本地学习的 Profile。
 
+启动前，在当前 PowerShell 进程中生成临时本地秘密。以下赋值不会写入 `.env`、
+不会持久化到用户或系统环境，也不会显示生成值；关闭该 PowerShell 窗口后即失效：
+
+```powershell
+function New-LocalSecret([int]$ByteLength = 32) {
+    $bytes = [byte[]]::new($ByteLength)
+    $random = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $random.GetBytes($bytes)
+        [Convert]::ToBase64String($bytes)
+    }
+    finally {
+        $random.Dispose()
+        [Array]::Clear($bytes, 0, $bytes.Length)
+    }
+}
+$env:JWT_SECRET = New-LocalSecret
+$env:CACHE_MANAGER_PASSWORD = New-LocalSecret
+$env:NOVEL_AUTH_HMAC_SECRET = New-LocalSecret
+```
+
+这些随机值只适合本地运行。生产环境必须由密钥管理系统注入稳定且高熵的独立值，
+不得复用 JWT、缓存管理和认证 HMAC 密钥。
+
 先启动基础设施和监控容器：
 
 ```powershell

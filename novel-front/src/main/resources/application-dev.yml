@@ -28,6 +28,10 @@ spring:
       ack-mode: batch
 
 novel:
+  auth:
+    trusted-proxy-addresses:
+      - 127.0.0.1
+      - ::1
   kafka:
     book-visit:
       topic: novel-book-visit-v1
