@@ -29,7 +29,7 @@ import org.mybatis.dynamic.sql.util.mybatis3.MyBatis3Utils;
 @Mapper
 public interface UserMapper {
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
-    BasicColumn[] selectList = BasicColumn.columnList(id, username, password, nickName, userPhoto, userSex, accountBalance, status, createTime, updateTime);
+    BasicColumn[] selectList = BasicColumn.columnList(id, username, password, email, passwordAlgorithm, tokenVersion, emailVerifiedAt, nickName, userPhoto, userSex, accountBalance, status, createTime, updateTime);
 
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
     @SelectProvider(type=SqlProviderAdapter.class, method="select")
@@ -58,6 +58,10 @@ public interface UserMapper {
         @Result(column="id", property="id", jdbcType=JdbcType.BIGINT, id=true),
         @Result(column="username", property="username", jdbcType=JdbcType.VARCHAR),
         @Result(column="password", property="password", jdbcType=JdbcType.VARCHAR),
+        @Result(column="email", property="email", jdbcType=JdbcType.VARCHAR),
+        @Result(column="password_algorithm", property="passwordAlgorithm", jdbcType=JdbcType.VARCHAR),
+        @Result(column="token_version", property="tokenVersion", jdbcType=JdbcType.BIGINT),
+        @Result(column="email_verified_at", property="emailVerifiedAt", jdbcType=JdbcType.TIMESTAMP),
         @Result(column="nick_name", property="nickName", jdbcType=JdbcType.VARCHAR),
         @Result(column="user_photo", property="userPhoto", jdbcType=JdbcType.VARCHAR),
         @Result(column="user_sex", property="userSex", jdbcType=JdbcType.TINYINT),
@@ -95,6 +99,10 @@ public interface UserMapper {
             c.map(id).toProperty("id")
             .map(username).toProperty("username")
             .map(password).toProperty("password")
+            .map(email).toProperty("email")
+            .map(passwordAlgorithm).toProperty("passwordAlgorithm")
+            .map(tokenVersion).toProperty("tokenVersion")
+            .map(emailVerifiedAt).toProperty("emailVerifiedAt")
             .map(nickName).toProperty("nickName")
             .map(userPhoto).toProperty("userPhoto")
             .map(userSex).toProperty("userSex")
@@ -111,6 +119,10 @@ public interface UserMapper {
             c.map(id).toProperty("id")
             .map(username).toProperty("username")
             .map(password).toProperty("password")
+            .map(email).toProperty("email")
+            .map(passwordAlgorithm).toProperty("passwordAlgorithm")
+            .map(tokenVersion).toProperty("tokenVersion")
+            .map(emailVerifiedAt).toProperty("emailVerifiedAt")
             .map(nickName).toProperty("nickName")
             .map(userPhoto).toProperty("userPhoto")
             .map(userSex).toProperty("userSex")
@@ -127,6 +139,10 @@ public interface UserMapper {
             c.map(id).toPropertyWhenPresent("id", record::getId)
             .map(username).toPropertyWhenPresent("username", record::getUsername)
             .map(password).toPropertyWhenPresent("password", record::getPassword)
+            .map(email).toPropertyWhenPresent("email", record::getEmail)
+            .map(passwordAlgorithm).toPropertyWhenPresent("passwordAlgorithm", record::getPasswordAlgorithm)
+            .map(tokenVersion).toPropertyWhenPresent("tokenVersion", record::getTokenVersion)
+            .map(emailVerifiedAt).toPropertyWhenPresent("emailVerifiedAt", record::getEmailVerifiedAt)
             .map(nickName).toPropertyWhenPresent("nickName", record::getNickName)
             .map(userPhoto).toPropertyWhenPresent("userPhoto", record::getUserPhoto)
             .map(userSex).toPropertyWhenPresent("userSex", record::getUserSex)
@@ -169,6 +185,10 @@ public interface UserMapper {
         return dsl.set(id).equalTo(record::getId)
                 .set(username).equalTo(record::getUsername)
                 .set(password).equalTo(record::getPassword)
+                .set(email).equalTo(record::getEmail)
+                .set(passwordAlgorithm).equalTo(record::getPasswordAlgorithm)
+                .set(tokenVersion).equalTo(record::getTokenVersion)
+                .set(emailVerifiedAt).equalTo(record::getEmailVerifiedAt)
                 .set(nickName).equalTo(record::getNickName)
                 .set(userPhoto).equalTo(record::getUserPhoto)
                 .set(userSex).equalTo(record::getUserSex)
@@ -183,6 +203,10 @@ public interface UserMapper {
         return dsl.set(id).equalToWhenPresent(record::getId)
                 .set(username).equalToWhenPresent(record::getUsername)
                 .set(password).equalToWhenPresent(record::getPassword)
+                .set(email).equalToWhenPresent(record::getEmail)
+                .set(passwordAlgorithm).equalToWhenPresent(record::getPasswordAlgorithm)
+                .set(tokenVersion).equalToWhenPresent(record::getTokenVersion)
+                .set(emailVerifiedAt).equalToWhenPresent(record::getEmailVerifiedAt)
                 .set(nickName).equalToWhenPresent(record::getNickName)
                 .set(userPhoto).equalToWhenPresent(record::getUserPhoto)
                 .set(userSex).equalToWhenPresent(record::getUserSex)
@@ -197,6 +221,10 @@ public interface UserMapper {
         return update(c ->
             c.set(username).equalTo(record::getUsername)
             .set(password).equalTo(record::getPassword)
+            .set(email).equalTo(record::getEmail)
+            .set(passwordAlgorithm).equalTo(record::getPasswordAlgorithm)
+            .set(tokenVersion).equalTo(record::getTokenVersion)
+            .set(emailVerifiedAt).equalTo(record::getEmailVerifiedAt)
             .set(nickName).equalTo(record::getNickName)
             .set(userPhoto).equalTo(record::getUserPhoto)
             .set(userSex).equalTo(record::getUserSex)
@@ -213,6 +241,10 @@ public interface UserMapper {
         return update(c ->
             c.set(username).equalToWhenPresent(record::getUsername)
             .set(password).equalToWhenPresent(record::getPassword)
+            .set(email).equalToWhenPresent(record::getEmail)
+            .set(passwordAlgorithm).equalToWhenPresent(record::getPasswordAlgorithm)
+            .set(tokenVersion).equalToWhenPresent(record::getTokenVersion)
+            .set(emailVerifiedAt).equalToWhenPresent(record::getEmailVerifiedAt)
             .set(nickName).equalToWhenPresent(record::getNickName)
             .set(userPhoto).equalToWhenPresent(record::getUserPhoto)
             .set(userSex).equalToWhenPresent(record::getUserSex)
