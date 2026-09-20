@@ -2,6 +2,8 @@ package com.java2nb.novel.controller;
 
 
 import com.java2nb.novel.core.bean.UserDetails;
+import com.java2nb.novel.auth.AuthenticationService;
+import com.java2nb.novel.auth.dto.LoginRequest;
 import com.java2nb.novel.core.cache.CacheService;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.core.utils.IpUtil;
@@ -37,16 +39,18 @@ public class UserController extends BaseController {
 
     private final UserService userService;
 
+    private final AuthenticationService authenticationService;
+
     private final BookService bookService;
 
     /**
      * 登录
      */
     @PostMapping("login")
-    public RestResult<Map<String, Object>> login(User user) {
+    public RestResult<Map<String, Object>> login(@Validated LoginRequest request) {
 
         //登录
-        UserDetails userDetails = userService.login(user);
+        UserDetails userDetails = authenticationService.login(request.account(), request.password()).userDetails();
 
         Map<String, Object> data = new HashMap<>(1);
         data.put("token", jwtTokenUtil.generateToken(userDetails));

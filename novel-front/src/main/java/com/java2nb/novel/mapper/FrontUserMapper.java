@@ -14,6 +14,10 @@ public interface FrontUserMapper extends UserMapper {
     int upgradeLegacyPassword(@Param("userId") long userId, @Param("oldHash") String oldHash,
         @Param("newHash") String newHash, @Param("now") LocalDateTime now);
 
+    int upgradePasswordIfCurrent(@Param("userId") long userId, @Param("oldHash") String oldHash,
+        @Param("oldAlgorithm") String oldAlgorithm, @Param("newHash") String newHash,
+        @Param("now") LocalDateTime now);
+
     Optional<User> selectAuthByEmail(@Param("normalizedEmail") String normalizedEmail);
 
     Optional<User> selectAuthByLegacyUsername(@Param("username") String username);
