@@ -6,6 +6,7 @@
     <resultMap id="AuthUserResult" type="com.java2nb.novel.entity.User">
         <id column="id" property="id"/>
         <result column="username" property="username"/>
+        <result column="nick_name" property="nickName"/>
         <result column="email" property="email"/>
         <result column="password" property="password"/>
         <result column="password_algorithm" property="passwordAlgorithm"/>
@@ -15,7 +16,7 @@
     </resultMap>
 
     <sql id="AuthColumns">
-        id, username, email, password, password_algorithm, token_version, email_verified_at, status
+        id, username, nick_name, email, password, password_algorithm, token_version, email_verified_at, status
     </sql>
 
     <select id="selectAuthByEmail" resultMap="AuthUserResult">
@@ -33,6 +34,11 @@
     <update id="upgradeLegacyPassword">
         UPDATE `user` SET password = #{newHash}, password_algorithm = 'ARGON2ID', update_time = #{now}
         WHERE id = #{userId} AND password = #{oldHash} AND password_algorithm = 'MD5'
+    </update>
+
+    <update id="upgradePasswordIfCurrent">
+        UPDATE `user` SET password = #{newHash}, password_algorithm = 'ARGON2ID', update_time = #{now}
+        WHERE id = #{userId} AND password = #{oldHash} AND password_algorithm = #{oldAlgorithm}
     </update>
 
 

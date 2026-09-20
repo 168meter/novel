@@ -92,7 +92,7 @@ class FrontUserAuthMapperTest {
         User legacy = auth("selectAuthByLegacyUsername", "13800138000").orElseThrow();
         assertThat(legacy.getPassword()).isEqualTo("legacy-hash");
         assertThat(legacy.getTokenVersion()).isEqualTo(7L);
-        assertThat(legacy.getNickName()).isNull();
+        assertThat(legacy.getNickName()).isEqualTo("private profile");
         assertThat(auth("selectAuthByEmail", "missing@example.com")).isEmpty();
         assertThat(auth("selectAuthByLegacyUsername", "missing")).isEmpty();
     }
@@ -114,6 +114,18 @@ class FrontUserAuthMapperTest {
         assertThat(upgrade(2, "argon-hash", "new")).isZero();
         assertThat(auth("selectAuthByLegacyUsername", "13800138000").orElseThrow().getPassword())
             .isEqualTo("legacy-hash");
+    }
+
+    @Test
+    void currentPasswordUpgradeUsesHashAndAlgorithmCompareAndSet() throws Exception {
+        try (var session = factory.openSession(true)) {
+            var mapper = session.getMapper(FrontUserMapper.class);
+            assertThat(mapper.upgradePasswordIfCurrent(1, "legacy-hash", "ARGON2ID", "next", now)).isZero();
+            assertThat(mapper.upgradePasswordIfCurrent(1, "legacy-hash", "MD5", "next", now)).isEqualTo(1);
+            assertThat(mapper.upgradePasswordIfCurrent(1, "legacy-hash", "MD5", "later", now)).isZero();
+        }
+        assertThat(auth("selectAuthByLegacyUsername", "13800138000").orElseThrow().getPassword())
+            .isEqualTo("next");
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.java2nb.novel.service.impl;
 
 import com.github.pagehelper.PageHelper;
 import com.java2nb.novel.core.bean.UserDetails;
+import com.java2nb.novel.auth.AuthenticationService;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.entity.*;
@@ -48,6 +49,8 @@ public class UserServiceImpl implements UserService {
 
     private final FrontUserMapper userMapper;
 
+    private final AuthenticationService authenticationService;
+
     private final FrontUserBookshelfMapper userBookshelfMapper;
 
     private final FrontUserReadHistoryMapper userReadHistoryMapper;
@@ -93,24 +96,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserDetails login(User user) {
-        //根据用户名密码查询记录
-        SelectStatementProvider selectStatement = select(id, username, nickName)
-            .from(UserDynamicSqlSupport.user)
-            .where(username, isEqualTo(user.getUsername()))
-            .and(password, isEqualTo(MD5Util.MD5Encode(user.getPassword(), Charsets.UTF_8.name())))
-            .build()
-            .render(RenderingStrategies.MYBATIS3);
-        List<User> users = userMapper.selectMany(selectStatement);
-        if (users.size() == 0) {
-            throw new BusinessException(ResponseStatus.USERNAME_PASS_ERROR);
-        }
-        //生成UserDetail对象并返回
-        UserDetails userDetails = new UserDetails();
-        user = users.get(0);
-        userDetails.setId(user.getId());
-        userDetails.setNickName(user.getNickName());
-        userDetails.setUsername(user.getUsername());
-        return userDetails;
+        return authenticationService.login(user.getUsername(), user.getPassword()).userDetails();
     }
 
     @Override
