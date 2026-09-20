@@ -116,6 +116,15 @@ foreach ($path in $profilePaths) {
         if ($scalar.Path -eq 'novel.auth.hmac-secret' -and $scalar.Value -cne '${NOVEL_AUTH_HMAC_SECRET}') {
             Add-Failure $path 'fixed-auth-hmac-secret'
         }
+        if ($scalar.Path -eq 'spring.data.redis.password' -and $scalar.Value -and -not $isEnvironmentReference) {
+            Add-Failure $path 'plaintext-redis-password'
+        }
+        if ($scalar.Path -eq 'http.proxy.password' -and $scalar.Value -and -not $isEnvironmentReference) {
+            Add-Failure $path 'plaintext-proxy-password'
+        }
+        if ($scalar.Path -eq 'http.proxy.username' -and $scalar.Value -and -not $isEnvironmentReference) {
+            Add-Failure $path 'plaintext-proxy-username'
+        }
     }
 }
 
