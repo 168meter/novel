@@ -188,6 +188,11 @@ $env:NOVEL_AUTH_HMAC_SECRET = New-LocalSecret
 这些随机值只适合本地运行。生产环境必须由密钥管理系统注入稳定且高熵的独立值，
 不得复用 JWT、缓存管理和认证 HMAC 密钥。
 
+打包配置 `novel-front/src/main/build/config/application.yml` 还通过环境变量读取
+`REDIS_PASSWORD`、`NOVEL_HTTP_PROXY_USERNAME` 和 `NOVEL_HTTP_PROXY_PASSWORD`。
+代理未启用时后两项可以留空；启用时必须从部署环境注入。此前进入 Git 历史的
+固定 Redis/代理凭据应在对应服务端轮换，删除当前文件中的值不会清除历史记录。
+
 先启动基础设施和监控容器：
 
 ```powershell
