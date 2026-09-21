@@ -1,6 +1,8 @@
 package com.java2nb.novel.auth.token;
 
 import com.java2nb.novel.mapper.FrontUserMapper;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,7 +11,9 @@ import static org.mockito.Mockito.*;
 class DatabaseTokenVersionServiceTest {
     @Test void acceptsOnlyMatchingVersionAndFailsClosed() {
         FrontUserMapper users = mock(FrontUserMapper.class);
-        DatabaseTokenVersionService versions = new DatabaseTokenVersionService(users);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        DatabaseTokenVersionService versions = new DatabaseTokenVersionService(users,
+            new AuthenticationMetrics(registry));
         when(users.selectTokenVersion(7L)).thenReturn(OptionalLong.of(2L));
         assertThat(versions.isCurrent(7L, 2L)).isTrue();
         assertThat(versions.isCurrent(7L, 1L)).isFalse();
@@ -17,5 +21,8 @@ class DatabaseTokenVersionServiceTest {
         assertThat(versions.isCurrent(7L, 0L)).isFalse();
         when(users.selectTokenVersion(7L)).thenThrow(new IllegalStateException("db down"));
         assertThat(versions.isCurrent(7L, 0L)).isFalse();
+        assertThat(registry.counter("novel.auth.jwt.version", "outcome", "valid").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.auth.jwt.version", "outcome", "revoked").count()).isEqualTo(2);
+        assertThat(registry.counter("novel.auth.jwt.version", "outcome", "dependency_error").count()).isEqualTo(1);
     }
 }

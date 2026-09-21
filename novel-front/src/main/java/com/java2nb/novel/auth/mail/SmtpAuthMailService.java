@@ -2,8 +2,8 @@ package com.java2nb.novel.auth.mail;
 
 import com.java2nb.novel.auth.captcha.CaptchaPurpose;
 import com.java2nb.novel.auth.captcha.CaptchaService;
-import io.micrometer.core.instrument.MeterRegistry;
-import java.util.Locale;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.MailOutcome;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -21,12 +21,12 @@ public class SmtpAuthMailService implements AuthMailService {
     private final JavaMailSender sender;
     private final Executor executor;
     private final CaptchaService captcha;
-    private final MeterRegistry metrics;
+    private final AuthenticationMetrics metrics;
     private final String from;
 
     public SmtpAuthMailService(JavaMailSender sender,
                                @Qualifier("authMailExecutor") Executor executor,
-                               CaptchaService captcha, MeterRegistry metrics,
+                               CaptchaService captcha, AuthenticationMetrics metrics,
                                @Value("${spring.mail.username:}") String from) {
         this.sender = sender;
         this.executor = executor;
@@ -53,9 +53,9 @@ public class SmtpAuthMailService implements AuthMailService {
                     message.setSubject(subject(purpose));
                     message.setText("您的验证码是 " + code + "，10 分钟内有效。请勿将验证码透露给他人。");
                     sender.send(message);
-                    count(purpose, "success");
+                    metrics.mail(purpose, MailOutcome.SUCCESS);
                 } catch (RuntimeException failure) {
-                    count(purpose, "failed");
+                    metrics.mail(purpose, MailOutcome.FAILED);
                     revokeSafely(purpose, normalizedEmail, code);
                     log.warn("Authentication email delivery failed; purpose={}; cause={}", purpose.keyPart(),
                         failure.getClass().getSimpleName());
@@ -63,7 +63,7 @@ public class SmtpAuthMailService implements AuthMailService {
             });
             return true;
         } catch (RejectedExecutionException rejected) {
-            count(purpose, "rejected");
+            metrics.mail(purpose, MailOutcome.REJECTED);
             if (deliver) revokeSafely(purpose, normalizedEmail, code);
             log.warn("Authentication email queue rejected task; purpose={}", purpose.keyPart());
             return false;
@@ -77,11 +77,6 @@ public class SmtpAuthMailService implements AuthMailService {
             log.warn("Authentication captcha revocation failed; purpose={}; cause={}", purpose.keyPart(),
                 failure.getClass().getSimpleName());
         }
-    }
-
-    private void count(CaptchaPurpose purpose, String result) {
-        metrics.counter("novel.auth.mail.delivery", "purpose", purpose.name().toLowerCase(Locale.ROOT),
-            "result", result).increment();
     }
 
     private String subject(CaptchaPurpose purpose) {

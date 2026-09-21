@@ -4,6 +4,8 @@ import com.java2nb.novel.auth.captcha.CaptchaService;
 import com.java2nb.novel.auth.dto.LoginRequest;
 import com.java2nb.novel.auth.mail.AuthMailService;
 import com.java2nb.novel.auth.password.PasswordService;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.java2nb.novel.auth.security.*;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.mapper.FrontUserMapper;
@@ -19,10 +21,13 @@ class LoginSecurityFlowTest {
     PasswordService passwords = mock(PasswordService.class);
     LoginSecurityService security = mock(LoginSecurityService.class);
     DefaultAuthenticationService service;
+    SimpleMeterRegistry metrics;
 
     @BeforeEach void setUp() {
+        metrics = new SimpleMeterRegistry();
         service = new DefaultAuthenticationService(users, passwords, "dummy",
-            mock(CaptchaService.class), mock(AuthMailService.class), security);
+            mock(CaptchaService.class), mock(AuthMailService.class), security,
+            new AuthenticationMetrics(metrics));
     }
 
     @Test void captchaChallengeRunsBeforeAccountLookupAndPasswordVerification() {
@@ -33,6 +38,7 @@ class LoginSecurityFlowTest {
             .extracting(error -> ((LoginSecurityException) error).decision())
             .isEqualTo(LoginSecurityDecision.CAPTCHA_REQUIRED);
         verifyNoInteractions(users, passwords);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "captcha_required").count()).isEqualTo(1);
     }
 
     @Test void malformedCredentialsStillPassThroughIpRateCheckAndRecordFailure() {
@@ -53,6 +59,8 @@ class LoginSecurityFlowTest {
                 .isInstanceOf(LoginSecurityException.class);
             verifyNoInteractions(users, passwords);
         }
+        assertThat(metrics.counter("novel.auth.login", "outcome", "dependency_error").count()).isEqualTo(1);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "rate_limited").count()).isEqualTo(1);
     }
 
     @Test void failedPasswordRecordsAccountAndIpWhileSuccessClearsOnlyAccount() {
@@ -66,6 +74,8 @@ class LoginSecurityFlowTest {
         when(passwords.matches("good", user.getPassword(), user.getPasswordAlgorithm())).thenReturn(true);
         service.login("reader@example.com", "good", null, "198.51.100.7");
         verify(security).clearAccountFailures("reader@example.com");
+        assertThat(metrics.counter("novel.auth.login", "outcome", "bad_credentials").count()).isEqualTo(1);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "success").count()).isEqualTo(1);
     }
 
     @Test void validHighRiskCaptchaPermitsPasswordVerification() {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
 import java.security.SecureRandom;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -30,8 +31,7 @@ class AuthConfigurationTest {
                 Argon2PasswordEncoder encoder = context.getBean(Argon2PasswordEncoder.class);
                 String encoded = encoder.encode("correct horse battery staple");
                 assertThat(encoder.matches("correct horse battery staple", encoded)).isTrue();
-                assertThat(context.getBean(AuthConfiguration.AuthMetrics.class).registry())
-                    .isSameAs(context.getBean(MeterRegistry.class));
+                assertThat(context).hasSingleBean(AuthenticationMetrics.class);
             });
     }
 

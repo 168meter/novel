@@ -42,6 +42,11 @@ $rules = Join-Path $root 'monitoring/prometheus/rules/novel-plus-alerts.yml'
     'JvmHeapUsageHigh'
     'FrontExecutorRejectedTasks'
     'FrontExecutorQueueSaturated'
+    'AuthenticationMailDeliveryFailures'
+    'AuthenticationMailQueueRejections'
+    'AuthenticationDependencyErrors'
+    'AuthenticationLoginFailuresHigh'
+    'AuthenticationPasswordUpgradeFailures'
 ) | ForEach-Object {
     Assert-FileContains $rules ("alert:\s*" + $_)
 }
@@ -144,6 +149,36 @@ foreach ($title in $recommendationQueries.Keys) {
         }
     }
 }
+
+$authenticationQueries = @{
+    'Authentication Login / Captcha Requests' = @(
+        'sum by (outcome) (rate(novel_auth_login_total[$__rate_interval]))'
+        'sum by (outcome) (rate(novel_auth_captcha_request_total[$__rate_interval]))'
+    )
+    'Authentication Captcha Verify / Mail' = @(
+        'sum by (outcome) (rate(novel_auth_captcha_verify_total[$__rate_interval]))'
+        'sum by (outcome) (rate(novel_auth_mail_delivery_total[$__rate_interval]))'
+    )
+    'Authentication Password Upgrade / JWT' = @(
+        'sum by (outcome) (rate(novel_auth_password_upgrade_total[$__rate_interval]))'
+        'sum by (outcome) (rate(novel_auth_jwt_version_total[$__rate_interval]))'
+    )
+    'Authentication Argon2 Average Duration' = @(
+        'sum by (operation) (rate(novel_auth_argon2_duration_seconds_sum[$__rate_interval])) / clamp_min(sum by (operation) (rate(novel_auth_argon2_duration_seconds_count[$__rate_interval])), 1e-9)'
+    )
+}
+foreach ($title in $authenticationQueries.Keys) {
+    $panels = @($dashboard.panels | Where-Object { $_.title -eq $title })
+    if ($panels.Count -ne 1) { throw "Authentication panel must exist exactly once: $title" }
+    foreach ($query in $authenticationQueries[$title]) {
+        if ($query -notin @($panels[0].targets.expr)) { throw "Authentication query missing: $query" }
+    }
+    foreach ($query in @($panels[0].targets.expr)) {
+        if ($query -match '(?i)\bor\s+vector\s*\(') {
+            throw "Authentication panels must expose absent series rather than fabricate zero: $title"
+        }
+    }
+}
 Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_heartbeat_total{result="redis_error"}[5m])) > 0'))
 Assert-FileContains $rules ([regex]::Escape('sum(increase(novel_reading_kafka_send_total{result="failed"}[5m])) > 0'))
 $ruleText = Get-Content -LiteralPath $rules -Raw
@@ -164,6 +199,23 @@ foreach ($name in $recommendationAlerts.Keys) {
     $hold = $recommendationAlerts[$name][1]
     if ($hold -and $block -notmatch ('(?m)^        for: ' + $hold + '\s*$')) { throw "Wrong recommendation alert hold: $name" }
     if (-not $hold -and $block -match '(?m)^        for:') { throw "Recommendation DB error alert must evaluate immediately: $name" }
+}
+$authenticationAlerts = @{
+    AuthenticationMailDeliveryFailures = @('sum(increase(novel_auth_mail_delivery_total{outcome="failed"}[5m])) >= 3', '2m')
+    AuthenticationMailQueueRejections = @('sum(increase(novel_auth_mail_delivery_total{outcome="rejected"}[5m])) > 0', '')
+    AuthenticationDependencyErrors = @('sum(increase(novel_auth_jwt_version_total{outcome="dependency_error"}[5m])) > 0', '')
+    AuthenticationLoginFailuresHigh = @('sum(rate(novel_auth_login_total{outcome=~"bad_credentials|account_limited|captcha_required|rate_limited"}[5m])) > 5', '2m')
+    AuthenticationPasswordUpgradeFailures = @('sum(increase(novel_auth_password_upgrade_total{outcome="failed"}[15m])) >= 3', '5m')
+}
+foreach ($name in $authenticationAlerts.Keys) {
+    $matches = [regex]::Matches($ruleText, ('(?ms)^      - alert: ' + $name + '\r?\n.*?(?=^      - alert:|\z)'))
+    if ($matches.Count -ne 1) { throw "Authentication alert must exist exactly once: $name" }
+    $block = $matches[0].Value
+    if (-not $block.Contains($authenticationAlerts[$name][0])) { throw "Wrong authentication alert expression: $name" }
+    if ($block -match '(?i)\bor\s+vector\s*\(') { throw "Authentication alert must not fabricate absent series: $name" }
+    $hold = $authenticationAlerts[$name][1]
+    if ($hold -and $block -notmatch ('(?m)^        for: ' + $hold + '\s*$')) { throw "Wrong authentication alert hold: $name" }
+    if (-not $hold -and $block -match '(?m)^        for:') { throw "Authentication alert must evaluate immediately: $name" }
 }
 foreach ($relativePath in @('performance/start-front-monitoring.ps1', 'performance/check-reading-engagement.ps1', 'performance/check-observability.ps1', 'performance/check-home-recommendation.ps1', 'performance/test-home-recommendation-script.ps1', 'performance/test-observability-config.ps1')) {
     $parseErrors = $null
