@@ -22,6 +22,14 @@ public interface FrontUserMapper extends UserMapper {
 
     Optional<User> selectAuthByLegacyUsername(@Param("username") String username);
 
+    Optional<User> selectAuthById(@Param("userId") long userId);
+
+    String selectLegacyUsernameById(@Param("userId") long userId);
+
+    int replacePasswordAndIncrementVersion(@Param("userId") long userId,
+        @Param("oldHash") String oldHash, @Param("oldVersion") long oldVersion,
+        @Param("newHash") String newHash, @Param("now") LocalDateTime now);
+
     // MyBatis supports Optional<T>, but does not unwrap OptionalLong as a scalar result.
     default OptionalLong selectTokenVersion(long userId) {
         Long version = selectTokenVersionValue(userId);

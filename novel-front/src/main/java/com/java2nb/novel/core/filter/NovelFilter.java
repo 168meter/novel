@@ -2,6 +2,7 @@ package com.java2nb.novel.core.filter;
 
 import com.java2nb.novel.core.cache.CacheKey;
 import com.java2nb.novel.core.cache.CacheService;
+import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.core.utils.*;
 import io.github.xxyopen.util.UUIDUtil;
 import jakarta.servlet.*;
@@ -50,6 +51,21 @@ public class NovelFilter implements Filter {
             out.close();
             return;
 
+        }
+
+
+        String token = CookieUtil.getCookie(req, "Authorization");
+        if (token == null) token = req.getHeader("Authorization");
+        if (token != null && !token.isBlank()) {
+            // A DB failure is unauthenticated; never trust claims alone.
+            req.setAttribute("novel.auth.checked", Boolean.TRUE);
+            try {
+                UserDetails authenticated = SpringUtil.getBean(JwtTokenUtil.class)
+                    .getAuthenticatedUserDetails(token);
+                if (authenticated != null) req.setAttribute("novel.auth.user", authenticated);
+            } catch (RuntimeException unavailable) {
+                // Keep the checked marker so no controller retries with unchecked claims.
+            }
         }
 
 

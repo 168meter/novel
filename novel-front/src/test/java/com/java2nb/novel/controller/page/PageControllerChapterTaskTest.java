@@ -102,7 +102,7 @@ class PageControllerChapterTaskTest {
             .thenReturn(new BookIndexNavigationVO(99L, 101L));
         when(contentService.queryBookContent(1L, 100L)).thenReturn(content);
         when(registrar.register("reader-mark", 1L, 100L)).thenReturn(Optional.empty());
-        when(jwtTokenUtil.getUserDetailsFromToken("token")).thenReturn(user);
+        when(jwtTokenUtil.getAuthenticatedUserDetails("token")).thenReturn(user);
         when(userService.queryIsBuyBookIndex(7L, 100L)).thenReturn(true);
 
         PageController controller = new PageController(

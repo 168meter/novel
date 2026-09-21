@@ -7,6 +7,8 @@ import com.java2nb.novel.auth.captcha.CaptchaIssueOutcome;
 import com.java2nb.novel.auth.captcha.CaptchaPurpose;
 import com.java2nb.novel.auth.captcha.CaptchaService;
 import com.java2nb.novel.auth.dto.RegisterRequest;
+import com.java2nb.novel.auth.dto.PasswordResetRequest;
+import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 import com.java2nb.novel.auth.mail.AuthMailService;
 import com.java2nb.novel.auth.password.PasswordHash;
 import com.java2nb.novel.auth.password.PasswordService;
@@ -54,6 +56,15 @@ public class DefaultAuthenticationService implements AuthenticationService {
 
     @Override
     public EmailCodeRequestOutcome requestRegistrationCode(String email, String clientAddress) {
+        return requestCode(CaptchaPurpose.REGISTER, email, clientAddress);
+    }
+
+    @Override
+    public EmailCodeRequestOutcome requestPasswordResetCode(String email, String clientAddress) {
+        return requestCode(CaptchaPurpose.RESET_PASSWORD, email, clientAddress);
+    }
+
+    private EmailCodeRequestOutcome requestCode(CaptchaPurpose purpose, String email, String clientAddress) {
         final String normalized;
         try { normalized = EmailNormalizer.normalize(email); }
         catch (IllegalArgumentException invalid) { throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST); }
@@ -62,21 +73,22 @@ public class DefaultAuthenticationService implements AuthenticationService {
         }
         CaptchaIssue issued;
         try {
-            issued = captcha.issue(CaptchaPurpose.REGISTER, normalized, clientAddress);
+            issued = captcha.issue(purpose, normalized, clientAddress);
         } catch (RuntimeException dependencyFailure) {
             return EmailCodeRequestOutcome.UNAVAILABLE;
         }
         if (issued.outcome() == CaptchaIssueOutcome.IP_LIMITED) return EmailCodeRequestOutcome.IP_LIMITED;
         if (issued.outcome() != CaptchaIssueOutcome.ISSUED) return EmailCodeRequestOutcome.EMAIL_LIMITED;
         try {
-            boolean deliver = users.selectAuthByEmail(normalized).isEmpty();
-            boolean accepted = mail.submit(CaptchaPurpose.REGISTER, normalized,
+            boolean exists = users.selectAuthByEmail(normalized).isPresent();
+            boolean deliver = purpose == CaptchaPurpose.REGISTER ? !exists : exists;
+            boolean accepted = mail.submit(purpose, normalized,
                 deliver ? issued.code() : null, deliver);
             if (accepted) return EmailCodeRequestOutcome.ACCEPTED;
         } catch (RuntimeException dependencyFailure) {
             // No account-state or dependency details enter the public response.
         }
-        try { captcha.revoke(CaptchaPurpose.REGISTER, normalized, issued.code()); }
+        try { captcha.revoke(purpose, normalized, issued.code()); }
         catch (RuntimeException ignored) { /* Redis is already unavailable. */ }
         return EmailCodeRequestOutcome.UNAVAILABLE;
     }
@@ -122,6 +134,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
             UserDetails details = new UserDetails();
             details.setId(id);
             details.setNickName(user.getNickName());
+            details.setTokenVersion(0L);
             return new AuthenticationResult(details);
         } catch (RuntimeException persistenceFailure) {
             throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE);
@@ -173,7 +186,79 @@ public class DefaultAuthenticationService implements AuthenticationService {
         details.setId(user.getId());
         details.setUsername(user.getUsername());
         details.setNickName(user.getNickName());
+        details.setTokenVersion(user.getTokenVersion());
         return new AuthenticationResult(details);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resetPassword(PasswordResetRequest request) {
+        if (request == null || !validNewPassword(request.password(), request.confirmPassword())
+            || request.code() == null || !request.code().matches("[0-9]{6}")) {
+            throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST);
+        }
+        final String email;
+        try { email = EmailNormalizer.normalize(request.email()); }
+        catch (IllegalArgumentException invalid) { throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST); }
+        final CaptchaConsumeOutcome outcome;
+        try { outcome = captcha.consume(CaptchaPurpose.RESET_PASSWORD, email, request.code()); }
+        catch (RuntimeException unavailable) { throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE); }
+        if (outcome != CaptchaConsumeOutcome.CONSUMED) {
+            throw new BusinessException(ResponseStatus.AUTH_INVALID_CODE);
+        }
+        try {
+            User user = users.selectAuthByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Reset account unavailable"));
+            replacePassword(user, request.password());
+        } catch (RuntimeException persistenceFailure) {
+            throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AuthenticationResult changePassword(long userId, PasswordChangeRequest request) {
+        if (request == null || request.oldPassword() == null || request.oldPassword().isBlank()
+            || request.oldPassword().length() > 1024
+            || !validNewPassword(request.newPassword1(), request.newPassword2())) {
+            throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST);
+        }
+        final User user;
+        try { user = users.selectAuthById(userId).orElseThrow(); }
+        catch (RuntimeException unavailable) { throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE); }
+        boolean matched;
+        try { matched = passwords.matches(request.oldPassword(), user.getPassword(), user.getPasswordAlgorithm()); }
+        catch (RuntimeException invalid) { matched = false; }
+        if (!matched) throw new BusinessException(ResponseStatus.OLD_PASSWORD_ERROR);
+        try {
+            replacePassword(user, request.newPassword1());
+        } catch (RuntimeException persistenceFailure) {
+            throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE);
+        }
+        UserDetails details = new UserDetails();
+        details.setId(userId);
+        details.setNickName(user.getNickName());
+        details.setTokenVersion(user.getTokenVersion() + 1);
+        return new AuthenticationResult(details);
+    }
+
+    @Override
+    public String legacyUsername(long userId) {
+        return users.selectLegacyUsernameById(userId);
+    }
+
+    private void replacePassword(User user, String rawPassword) {
+        PasswordHash hash = passwords.encode(rawPassword);
+        if (!"ARGON2ID".equals(hash.algorithm())) throw new IllegalStateException("Unexpected password algorithm");
+        if (users.replacePasswordAndIncrementVersion(user.getId(), user.getPassword(), user.getTokenVersion(),
+            hash.encoded(), LocalDateTime.now()) != 1) {
+            throw new IllegalStateException("Concurrent password update");
+        }
+    }
+
+    private static boolean validNewPassword(String password, String confirmation) {
+        return password != null && password.length() >= 8 && password.length() <= 64
+            && password.equals(confirmation);
     }
 
     private static BusinessException badCredentials() {

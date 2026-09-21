@@ -13,4 +13,6 @@ public class UserDetails {
     private String username;
 
     private String nickName;
+
+    private Long tokenVersion;
 }

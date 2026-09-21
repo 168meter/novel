@@ -13,12 +13,10 @@ import com.java2nb.novel.vo.BookShelfVO;
 import com.java2nb.novel.vo.UserFeedbackVO;
 import io.github.xxyopen.model.page.PageBean;
 import io.github.xxyopen.model.page.builder.pagehelper.PageBuilder;
-import io.github.xxyopen.util.MD5Util;
 import io.github.xxyopen.web.exception.BusinessException;
 import io.github.xxyopen.web.util.BeanUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.codec.Charsets;
 import org.mybatis.dynamic.sql.delete.render.DeleteStatementProvider;
 import org.mybatis.dynamic.sql.render.RenderingStrategies;
 import org.mybatis.dynamic.sql.select.render.SelectStatementProvider;
@@ -188,27 +186,6 @@ public class UserServiceImpl implements UserService {
         user.setId(userId);
         user.setUpdateTime(new Date());
         userMapper.updateByPrimaryKeySelective(user);
-
-    }
-
-    @Override
-    public void updatePassword(Long userId, String oldPassword, String newPassword) {
-        SelectStatementProvider selectStatement = select(password)
-            .from(user)
-            .where(id, isEqualTo(userId))
-            .build()
-            .render(RenderingStrategies.MYBATIS3);
-        if (!userMapper.selectMany(selectStatement).get(0).getPassword()
-            .equals(MD5Util.MD5Encode(oldPassword, Charsets.UTF_8.name()))) {
-            throw new BusinessException(ResponseStatus.OLD_PASSWORD_ERROR);
-        }
-        UpdateStatementProvider updateStatement = update(user)
-            .set(password)
-            .equalTo(MD5Util.MD5Encode(newPassword, Charsets.UTF_8.name()))
-            .where(id, isEqualTo(userId))
-            .build()
-            .render(RenderingStrategies.MYBATIS3);
-        userMapper.update(updateStatement);
 
     }
 
