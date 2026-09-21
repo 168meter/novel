@@ -1,11 +1,11 @@
 package com.java2nb.novel.controller;
 
 
-import com.java2nb.novel.core.cache.CacheService;
+import com.java2nb.novel.auth.security.ClientAddressResolver;
+import com.java2nb.novel.auth.security.LoginSecurityService;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.core.utils.Constants;
 import com.java2nb.novel.core.utils.FileUtil;
-import com.java2nb.novel.core.utils.IpUtil;
 import com.java2nb.novel.core.utils.RandomValidateCodeUtil;
 import io.github.xxyopen.model.resp.RestResult;
 import io.github.xxyopen.util.UUIDUtil;
@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.ByteArrayOutputStream;
 import java.util.Date;
 
 /**
@@ -34,7 +35,8 @@ import java.util.Date;
 @RequiredArgsConstructor
 public class FileController {
 
-    private final CacheService cacheService;
+    private final LoginSecurityService loginSecurityService;
+    private final ClientAddressResolver clientAddressResolver;
 
     @Value("${pic.save.path}")
     private String picSavePath;
@@ -45,18 +47,16 @@ public class FileController {
     @GetMapping(value = "getVerify")
     @SneakyThrows
     public void getVerify(HttpServletRequest request, HttpServletResponse response) {
-        //设置相应类型,告诉浏览器输出的内容为图片
+        RandomValidateCodeUtil randomValidateCode = new RandomValidateCodeUtil();
+        ByteArrayOutputStream image = new ByteArrayOutputStream(2048);
+        String randomString = randomValidateCode.genRandCodeImage(image);
+        loginSecurityService.storeImageCaptcha(clientAddressResolver.resolve(request), randomString);
+        // Do not expose an unusable image until its one-time state is durably stored.
         response.setContentType("image/jpeg");
-        //设置响应头信息，告诉浏览器不要缓存此内容
         response.setHeader("Pragma", "No-cache");
         response.setHeader("Cache-Control", "no-cache");
         response.setDateHeader("Expire", 0);
-        RandomValidateCodeUtil randomValidateCode = new RandomValidateCodeUtil();
-        //输出验证码图片方法
-        String randomString = randomValidateCode.genRandCodeImage(response.getOutputStream());
-        //将生成的随机字符串保存到缓存中
-        cacheService.set(RandomValidateCodeUtil.RANDOM_CODE_KEY + ":" + IpUtil.getRealIp(request), randomString,
-            60 * 5);
+        image.writeTo(response.getOutputStream());
     }
 
     /**

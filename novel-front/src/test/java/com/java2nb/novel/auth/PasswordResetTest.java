@@ -4,6 +4,7 @@ import com.java2nb.novel.auth.captcha.*;
 import com.java2nb.novel.auth.dto.*;
 import com.java2nb.novel.auth.mail.AuthMailService;
 import com.java2nb.novel.auth.password.*;
+import com.java2nb.novel.auth.security.*;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.mapper.FrontUserMapper;
 import io.github.xxyopen.web.exception.BusinessException;
@@ -18,7 +19,9 @@ class PasswordResetTest {
     PasswordService passwords = mock(PasswordService.class);
     CaptchaService captcha = mock(CaptchaService.class);
     AuthMailService mail = mock(AuthMailService.class);
-    DefaultAuthenticationService service = new DefaultAuthenticationService(users, passwords, "dummy", captcha, mail);
+    LoginSecurityService security = mock(LoginSecurityService.class);
+    DefaultAuthenticationService service = new DefaultAuthenticationService(
+        users, passwords, "dummy", captcha, mail, security);
 
     @Test void absentEmailUsesSamePublicCodeResponseWithoutSendingMail() {
         when(captcha.issue(CaptchaPurpose.RESET_PASSWORD, "reader@example.com", "127.0.0.1"))
@@ -40,6 +43,7 @@ class PasswordResetTest {
             .thenReturn(1);
         service.resetPassword(new PasswordResetRequest("reader@example.com", "123456", "new-password-123", "new-password-123"));
         verify(users).replacePasswordAndIncrementVersion(eq(7L), eq("old-md5"), eq(2L), eq("$argon2id$new"), any());
+        verify(security).clearAccountFailures("reader@example.com");
     }
 
     @Test void invalidCodeCannotWritePassword() {

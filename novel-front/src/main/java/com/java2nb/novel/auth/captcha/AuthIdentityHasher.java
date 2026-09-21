@@ -37,6 +37,28 @@ public final class AuthIdentityHasher {
             + require(normalizedEmail).trim().toLowerCase(Locale.ROOT) + "\0" + code);
     }
 
+    public String loginAccountKey(String normalizedAccount) {
+        return "auth:login:account:" + hmac("login-account\0" + require(normalizedAccount)
+            .trim().toLowerCase(Locale.ROOT)).substring(0, 32);
+    }
+
+    public String loginIpKey(String clientAddress) {
+        return "auth:login:ip:" + hmac("login-ip\0" + require(clientAddress)).substring(0, 32);
+    }
+
+    public String loginRateKey(String clientAddress) {
+        return "auth:login:rate:" + hmac("login-rate\0" + require(clientAddress)).substring(0, 32);
+    }
+
+    public String imageCaptchaKey(String clientAddress) {
+        return "auth:login:image-captcha:" + hmac("image-client\0" + require(clientAddress)).substring(0, 32);
+    }
+
+    public String imageCaptchaDigest(String clientAddress, String code) {
+        if (code == null || !code.matches("\\d{4}")) throw new IllegalArgumentException("Invalid image captcha format");
+        return hmac("image-code\0" + require(clientAddress) + "\0" + code);
+    }
+
     private String hmac(String input) {
         try {
             Mac mac = Mac.getInstance(ALGORITHM);

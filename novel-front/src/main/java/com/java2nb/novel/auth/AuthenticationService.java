@@ -6,7 +6,7 @@ import com.java2nb.novel.auth.dto.PasswordResetRequest;
 import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 
 public interface AuthenticationService {
-    AuthenticationResult login(String account, String rawPassword);
+    AuthenticationResult login(String account, String rawPassword, String imageCaptcha, String clientAddress);
     EmailCodeRequestOutcome requestRegistrationCode(String email, String clientAddress);
     AuthenticationResult register(RegisterRequest request);
     EmailCodeRequestOutcome requestPasswordResetCode(String email, String clientAddress);

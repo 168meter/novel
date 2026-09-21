@@ -12,6 +12,9 @@ import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 import com.java2nb.novel.auth.mail.AuthMailService;
 import com.java2nb.novel.auth.password.PasswordHash;
 import com.java2nb.novel.auth.password.PasswordService;
+import com.java2nb.novel.auth.security.LoginSecurityDecision;
+import com.java2nb.novel.auth.security.LoginSecurityException;
+import com.java2nb.novel.auth.security.LoginSecurityService;
 import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.entity.User;
@@ -33,25 +36,35 @@ public class DefaultAuthenticationService implements AuthenticationService {
     private final String dummyHash;
     private final CaptchaService captcha;
     private final AuthMailService mail;
+    private final LoginSecurityService loginSecurity;
     private final IdWorker idWorker = IdWorker.INSTANCE;
 
     @Autowired
     public DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords,
-                                        CaptchaService captcha, AuthMailService mail) {
-        this(users, passwords, passwords.encode("anonymous-account-dummy-password").encoded(), captcha, mail);
+                                        CaptchaService captcha, AuthMailService mail,
+                                        LoginSecurityService loginSecurity) {
+        this(users, passwords, passwords.encode("anonymous-account-dummy-password").encoded(), captcha, mail,
+            loginSecurity);
     }
 
     DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash) {
-        this(users, passwords, dummyHash, null, null);
+        this(users, passwords, dummyHash, null, null, permissiveSecurity());
     }
 
     DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
                                  CaptchaService captcha, AuthMailService mail) {
+        this(users, passwords, dummyHash, captcha, mail, permissiveSecurity());
+    }
+
+    DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
+                                 CaptchaService captcha, AuthMailService mail,
+                                 LoginSecurityService loginSecurity) {
         this.users = users;
         this.passwords = passwords;
         this.dummyHash = dummyHash;
         this.captcha = captcha;
         this.mail = mail;
+        this.loginSecurity = loginSecurity;
     }
 
     @Override
@@ -142,15 +155,39 @@ public class DefaultAuthenticationService implements AuthenticationService {
     }
 
     @Override
-    public AuthenticationResult login(String account, String rawPassword) {
-        if (account == null || account.isBlank() || account.length() > 254
-            || rawPassword == null || rawPassword.isBlank() || rawPassword.length() > 1024) {
+    public AuthenticationResult login(String account, String rawPassword, String imageCaptcha,
+                                      String clientAddress) {
+        String normalized = account == null ? "" : account.trim();
+        if (normalized.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            normalized = normalized.toLowerCase(Locale.ROOT);
+        }
+        if (clientAddress == null || clientAddress.isBlank()) {
+            throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
+        }
+        String securityAccount = normalized.isBlank() || normalized.length() > 254
+            ? "invalid-account" : normalized;
+        LoginSecurityDecision decision = loginSecurity.check(securityAccount, clientAddress);
+        if (decision == LoginSecurityDecision.DEPENDENCY_ERROR
+            || decision == LoginSecurityDecision.RATE_LIMITED) {
+            throw decision == LoginSecurityDecision.RATE_LIMITED
+                ? new LoginSecurityException(decision, loginSecurity.retryAfterSeconds())
+                : new LoginSecurityException(decision);
+        }
+        if (decision == LoginSecurityDecision.ACCOUNT_LIMITED) throw badCredentials();
+        if (decision == LoginSecurityDecision.CAPTCHA_REQUIRED
+            && (imageCaptcha == null || !loginSecurity.consumeImageCaptcha(clientAddress, imageCaptcha))) {
+            throw new LoginSecurityException(LoginSecurityDecision.CAPTCHA_REQUIRED);
+        }
+        if (normalized.isBlank() || normalized.length() > 254 || rawPassword == null
+            || rawPassword.isBlank() || rawPassword.length() > 1024) {
+            try { passwords.matches(rawPassword == null ? "" : rawPassword, dummyHash, "ARGON2ID"); }
+            catch (RuntimeException ignored) { }
+            recordFailure(securityAccount, clientAddress);
             throw badCredentials();
         }
-        String normalized = account.trim();
         Optional<User> found;
         if (normalized.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
-            found = users.selectAuthByEmail(normalized.toLowerCase(Locale.ROOT));
+            found = users.selectAuthByEmail(normalized);
         } else if (normalized.matches("^1\\d{10}$")) {
             found = users.selectAuthByLegacyUsername(normalized);
         } else {
@@ -162,16 +199,24 @@ public class DefaultAuthenticationService implements AuthenticationService {
             } catch (RuntimeException ignored) {
                 // The same public error is returned even when the verifier itself fails.
             }
+            recordFailure(normalized, clientAddress);
             throw badCredentials();
         }
         User user = found.orElseThrow();
         // Unknown algorithms and malformed hashes must fail closed.
         try {
             if (!passwords.matches(rawPassword, user.getPassword(), user.getPasswordAlgorithm())) {
+                recordFailure(normalized, clientAddress);
                 throw badCredentials();
             }
         } catch (RuntimeException ex) {
+            if (ex instanceof BusinessException || ex instanceof LoginSecurityException) throw ex;
+            recordFailure(normalized, clientAddress);
             throw badCredentials();
+        }
+        try { loginSecurity.clearAccountFailures(normalized); }
+        catch (RuntimeException unavailable) {
+            throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
         }
         try {
             if (passwords.needsUpgrade(user.getPassword(), user.getPasswordAlgorithm())) {
@@ -188,6 +233,24 @@ public class DefaultAuthenticationService implements AuthenticationService {
         details.setNickName(user.getNickName());
         details.setTokenVersion(user.getTokenVersion());
         return new AuthenticationResult(details);
+    }
+
+    private void recordFailure(String normalizedAccount, String clientAddress) {
+        try { loginSecurity.recordFailure(normalizedAccount, clientAddress); }
+        catch (RuntimeException unavailable) {
+            throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
+        }
+    }
+
+    private static LoginSecurityService permissiveSecurity() {
+        return new LoginSecurityService() {
+            public LoginSecurityDecision check(String account, String client) { return LoginSecurityDecision.ALLOWED; }
+            public void recordFailure(String account, String client) { }
+            public void clearAccountFailures(String account) { }
+            public void storeImageCaptcha(String client, String code) { }
+            public boolean consumeImageCaptcha(String client, String code) { return true; }
+            public long retryAfterSeconds() { return 60; }
+        };
     }
 
     @Override
@@ -210,6 +273,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
             User user = users.selectAuthByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Reset account unavailable"));
             replacePassword(user, request.password());
+            loginSecurity.clearAccountFailures(email);
         } catch (RuntimeException persistenceFailure) {
             throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE);
         }

@@ -33,7 +33,7 @@ class DefaultAuthenticationServiceTest {
         when(passwords.encode("old-pass")).thenReturn(new PasswordHash("new-hash", "ARGON2ID"));
         when(users.upgradePasswordIfCurrent(eq(7L), eq("old-hash"), eq("MD5"), eq("new-hash"), any(LocalDateTime.class))).thenReturn(1);
 
-        UserDetails result = service.login("13800138000", "old-pass").userDetails();
+        UserDetails result = service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails();
         assertThat(result.getId()).isEqualTo(7L);
         assertThat(result.getNickName()).isEqualTo("reader");
         verify(users).upgradePasswordIfCurrent(eq(7L), eq("old-hash"), eq("MD5"), eq("new-hash"), any(LocalDateTime.class));
@@ -46,20 +46,20 @@ class DefaultAuthenticationServiceTest {
         when(passwords.needsUpgrade("old-hash", "MD5")).thenReturn(true);
         when(passwords.encode("old-pass")).thenThrow(new IllegalStateException("db-or-hash-failure"));
 
-        assertThat(service.login("13800138000", "old-pass").userDetails().getId()).isEqualTo(7L);
+        assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
     }
 
     @Test void emailLoginUsesArgon2WithoutRehashWhenCurrent() {
         User user = user(null, "reader@example.com", "argon-hash", "ARGON2ID");
         when(users.selectAuthByEmail("reader@example.com")).thenReturn(Optional.of(user));
         when(passwords.matches("secret", "argon-hash", "ARGON2ID")).thenReturn(true);
-        UserDetails result = service.login("Reader@Example.Com", "secret").userDetails();
+        UserDetails result = service.login("Reader@Example.Com", "secret", null, "127.0.0.1").userDetails();
         assertThat(result.getId()).isEqualTo(7L);
         verify(users, never()).upgradePasswordIfCurrent(anyLong(), anyString(), anyString(), anyString(), any());
     }
 
     @Test void unknownAccountPerformsDummyVerificationAndRejects() {
-        assertThatThrownBy(() -> service.login("missing@example.com", "secret"))
+        assertThatThrownBy(() -> service.login("missing@example.com", "secret", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
         verify(passwords).matches("secret", "dummy-argon-hash", "ARGON2ID");
     }
@@ -67,14 +67,14 @@ class DefaultAuthenticationServiceTest {
     @Test void dummyVerifierFailureStillReturnsGenericCredentialError() {
         when(passwords.matches("secret", "dummy-argon-hash", "ARGON2ID"))
             .thenThrow(new IllegalArgumentException("malformed dummy hash"));
-        assertThatThrownBy(() -> service.login("missing@example.com", "secret"))
+        assertThatThrownBy(() -> service.login("missing@example.com", "secret", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
     }
 
     @Test void incorrectPasswordNeverUpgrades() {
         when(users.selectAuthByLegacyUsername("13800138000"))
             .thenReturn(Optional.of(user("13800138000", null, "old-hash", "MD5")));
-        assertThatThrownBy(() -> service.login("13800138000", "wrong"))
+        assertThatThrownBy(() -> service.login("13800138000", "wrong", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
         verify(passwords, never()).encode(anyString());
     }
@@ -85,7 +85,7 @@ class DefaultAuthenticationServiceTest {
         when(passwords.matches("old-pass", "old-hash", "MD5")).thenReturn(true);
         when(passwords.needsUpgrade("old-hash", "MD5")).thenReturn(true);
         when(passwords.encode("old-pass")).thenReturn(new PasswordHash("new-hash", "ARGON2ID"));
-        assertThat(service.login("13800138000", "old-pass").userDetails().getId()).isEqualTo(7L);
+        assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
     }
 
     @Test void secondLoginVerifiesTheUpgradedAlgorithm() {
@@ -97,8 +97,8 @@ class DefaultAuthenticationServiceTest {
         when(passwords.matches("old-pass", "new-hash", "ARGON2ID")).thenReturn(true);
         when(passwords.needsUpgrade("old-hash", "MD5")).thenReturn(true);
         when(passwords.encode("old-pass")).thenReturn(new PasswordHash("new-hash", "ARGON2ID"));
-        assertThat(service.login("13800138000", "old-pass").userDetails().getId()).isEqualTo(7L);
-        assertThat(service.login("13800138000", "old-pass").userDetails().getId()).isEqualTo(7L);
+        assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
+        assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
         verify(passwords).matches("old-pass", "new-hash", "ARGON2ID");
     }
 
@@ -107,7 +107,7 @@ class DefaultAuthenticationServiceTest {
             .thenReturn(Optional.of(user("13800138000", null, "hash", "UNKNOWN")));
         when(passwords.matches("pass", "hash", "UNKNOWN"))
             .thenThrow(new IllegalArgumentException("unsupported"));
-        assertThatThrownBy(() -> service.login("13800138000", "pass"))
+        assertThatThrownBy(() -> service.login("13800138000", "pass", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
         verify(passwords, never()).encode(anyString());
     }

@@ -1,8 +1,6 @@
 package com.java2nb.novel.service.impl;
 
 import com.github.pagehelper.PageHelper;
-import com.java2nb.novel.core.bean.UserDetails;
-import com.java2nb.novel.auth.AuthenticationService;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.entity.*;
@@ -45,8 +43,6 @@ public class UserServiceImpl implements UserService {
 
     private final FrontUserMapper userMapper;
 
-    private final AuthenticationService authenticationService;
-
     private final FrontUserBookshelfMapper userBookshelfMapper;
 
     private final FrontUserReadHistoryMapper userReadHistoryMapper;
@@ -54,11 +50,6 @@ public class UserServiceImpl implements UserService {
     private final UserFeedbackMapper userFeedbackMapper;
 
     private final UserBuyRecordMapper userBuyRecordMapper;
-
-    @Override
-    public UserDetails login(User user) {
-        return authenticationService.login(user.getUsername(), user.getPassword()).userDetails();
-    }
 
     @Override
     public Boolean queryIsInShelf(Long userId, Long bookId) {
