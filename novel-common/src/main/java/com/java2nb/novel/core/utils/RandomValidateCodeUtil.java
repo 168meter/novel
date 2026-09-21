@@ -8,7 +8,7 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.OutputStream;
-import java.util.Random;
+import java.security.SecureRandom;
 
 /**
  * @author xiongxy
@@ -43,7 +43,7 @@ public class RandomValidateCodeUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(RandomValidateCodeUtil.class);
 
-    private Random random = new Random();
+    private final SecureRandom random = new SecureRandom();
 
     /**
      * 获得字体

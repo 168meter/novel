@@ -18,6 +18,9 @@ import com.java2nb.novel.service.UserService;
 import io.github.xxyopen.model.resp.RestResult;
 import io.github.xxyopen.web.valid.UpdateGroup;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import com.java2nb.novel.auth.security.LoginSecurityDecision;
+import com.java2nb.novel.auth.security.LoginSecurityException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -49,15 +52,29 @@ public class UserController extends BaseController {
      * 登录
      */
     @PostMapping("login")
-    public RestResult<Map<String, Object>> login(@Validated LoginRequest request) {
-
-        //登录
-        UserDetails userDetails = authenticationService.login(request.account(), request.password()).userDetails();
-
-        Map<String, Object> data = new HashMap<>(1);
-        data.put("token", jwtTokenUtil.generateToken(userDetails));
-
-        return RestResult.ok(data);
+    public RestResult<Map<String, Object>> login(@Validated LoginRequest request,
+                                                  HttpServletRequest httpRequest,
+                                                  HttpServletResponse response) {
+        try {
+            UserDetails userDetails = authenticationService.login(request.account(), request.password(),
+                request.imageCaptcha(), getClientAddress(httpRequest)).userDetails();
+            Map<String, Object> data = new HashMap<>(1);
+            data.put("token", jwtTokenUtil.generateToken(userDetails));
+            return RestResult.ok(data);
+        } catch (LoginSecurityException security) {
+            if (security.decision() == LoginSecurityDecision.RATE_LIMITED) {
+                response.setStatus(429);
+                response.setHeader("Retry-After", String.valueOf(security.retryAfterSeconds()));
+            }
+            Map<String, Object> data = new HashMap<>(1);
+            data.put("captchaRequired", security.decision() == LoginSecurityDecision.CAPTCHA_REQUIRED);
+            RestResult<Map<String, Object>> result = RestResult.ok(data);
+            ResponseStatus status = security.decision() == LoginSecurityDecision.DEPENDENCY_ERROR
+                ? ResponseStatus.AUTH_UNAVAILABLE : ResponseStatus.USERNAME_PASS_ERROR;
+            result.setCode(status.getCode());
+            result.setMsg(status.getMsg());
+            return result;
+        }
 
 
     }
@@ -66,7 +83,7 @@ public class UserController extends BaseController {
     public RestResult<?> requestRegistrationCode(@Validated @ModelAttribute EmailCodeRequest codeRequest,
                                                   HttpServletRequest request) {
         EmailCodeRequestOutcome outcome = authenticationService.requestRegistrationCode(
-            codeRequest.email(), request.getRemoteAddr());
+            codeRequest.email(), getClientAddress(request));
         return switch (outcome) {
             case ACCEPTED -> RestResult.ok();
             case EMAIL_LIMITED, IP_LIMITED -> RestResult.fail(ResponseStatus.AUTH_CODE_LIMITED);
@@ -90,7 +107,7 @@ public class UserController extends BaseController {
     public RestResult<?> requestPasswordResetCode(@Validated @ModelAttribute EmailCodeRequest codeRequest,
                                                   HttpServletRequest request) {
         EmailCodeRequestOutcome outcome = authenticationService.requestPasswordResetCode(
-            codeRequest.email(), request.getRemoteAddr());
+            codeRequest.email(), getClientAddress(request));
         return switch (outcome) {
             case ACCEPTED -> RestResult.ok();
             case EMAIL_LIMITED, IP_LIMITED -> RestResult.fail(ResponseStatus.AUTH_CODE_LIMITED);

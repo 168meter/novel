@@ -2,7 +2,6 @@ package com.java2nb.novel.service;
 
 
 import io.github.xxyopen.model.page.PageBean;
-import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.entity.UserBuyRecord;
 import com.java2nb.novel.entity.UserFeedback;
 import com.java2nb.novel.vo.BookReadHistoryVO;
@@ -17,13 +16,6 @@ import java.util.List;
  * @author 11797
  */
 public interface UserService {
-
-    /**
-     * 用户登录
-     * @param user 用户登录信息类
-     * @return jwt载体信息类
-     * */
-    UserDetails login(User user);
 
     /**
      * 查询小说是否已加入书架

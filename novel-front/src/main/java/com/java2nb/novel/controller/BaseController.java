@@ -6,6 +6,7 @@ import com.java2nb.novel.core.utils.JwtTokenUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.java2nb.novel.auth.security.ClientAddressResolver;
 
 
 /**
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 public class BaseController {
 
     protected JwtTokenUtil jwtTokenUtil;
+    protected ClientAddressResolver clientAddressResolver;
 
 
     protected String getToken(HttpServletRequest request){
@@ -40,5 +42,14 @@ public class BaseController {
     @Autowired
     public void setJwtTokenUtil(JwtTokenUtil jwtTokenUtil) {
         this.jwtTokenUtil = jwtTokenUtil;
+    }
+
+    protected String getClientAddress(HttpServletRequest request) {
+        return clientAddressResolver == null ? request.getRemoteAddr() : clientAddressResolver.resolve(request);
+    }
+
+    @Autowired
+    public void setClientAddressResolver(ClientAddressResolver clientAddressResolver) {
+        this.clientAddressResolver = clientAddressResolver;
     }
 }

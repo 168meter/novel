@@ -6,6 +6,8 @@ import com.java2nb.novel.auth.dto.RegisterRequest;
 import com.java2nb.novel.auth.dto.PasswordResetRequest;
 import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 import com.java2nb.novel.auth.token.TokenVersionService;
+import com.java2nb.novel.auth.security.LoginSecurityDecision;
+import com.java2nb.novel.auth.security.LoginSecurityException;
 import com.java2nb.novel.auth.model.AuthenticationResult;
 import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.core.advice.CommonExceptionHandler;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.MediaType;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -24,6 +27,49 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class UserControllerAuthenticationTest {
+    @Test void allAccountDerivedLoginFailuresHaveSamePublicResponse() throws Exception {
+        AuthenticationService auth = mock(AuthenticationService.class);
+        when(auth.login(any(), any(), any(), any()))
+            .thenThrow(new io.github.xxyopen.web.exception.BusinessException(
+                com.java2nb.novel.core.enums.ResponseStatus.USERNAME_PASS_ERROR));
+        UserController controller = new UserController(mock(CacheService.class), mock(UserService.class),
+            auth, mock(BookService.class));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new CommonExceptionHandler()).build();
+        String expected = null;
+        for (String account : new String[]{"missing@example.com", "wrong@example.com",
+            "malformed@example.com", "limited@example.com"}) {
+            String body = mvc.perform(post("/user/login").accept(MediaType.APPLICATION_JSON)
+                .param("loginAccount", account).param("password", "password123")
+                .with(request -> { request.setRemoteAddr("198.51.100.7"); return request; }))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            if (expected == null) expected = body;
+            assertThat(body).isEqualTo(expected)
+                .doesNotContain(account, "captchaRequired", "token");
+        }
+    }
+    @Test void highRiskLoginReturnsCaptchaFlagAndRateLimitReturns429() throws Exception {
+        AuthenticationService auth = mock(AuthenticationService.class);
+        when(auth.login("reader@example.com", "password123", null, "198.51.100.7"))
+            .thenThrow(new LoginSecurityException(LoginSecurityDecision.CAPTCHA_REQUIRED))
+            .thenThrow(new LoginSecurityException(LoginSecurityDecision.RATE_LIMITED));
+        UserController controller = new UserController(mock(CacheService.class), mock(UserService.class),
+            auth, mock(BookService.class));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        var first = mvc.perform(post("/user/login").accept(MediaType.APPLICATION_JSON)
+            .param("loginAccount", "reader@example.com")
+            .param("password", "password123")
+            .with(request -> { request.setRemoteAddr("198.51.100.7"); return request; }))
+            .andExpect(status().isOk()).andReturn().getResponse();
+        assertThat(first.getContentAsString()).contains("\"captchaRequired\":true").doesNotContain("token");
+        var second = mvc.perform(post("/user/login").accept(MediaType.APPLICATION_JSON)
+            .param("loginAccount", "reader@example.com")
+            .param("password", "password123")
+            .with(request -> { request.setRemoteAddr("198.51.100.7"); return request; }))
+            .andExpect(status().isTooManyRequests()).andReturn().getResponse();
+        assertThat(second.getHeader("Retry-After")).isEqualTo("60");
+        assertThat(second.getContentAsString()).contains("\"captchaRequired\":false").doesNotContain("token");
+    }
     @Test void refreshingMinimalJwtRetainsLegacyUsernameFromDatabase() throws Exception {
         AuthenticationService auth = mock(AuthenticationService.class);
         TokenVersionService versions = mock(TokenVersionService.class);
@@ -182,7 +228,8 @@ class UserControllerAuthenticationTest {
         AuthenticationService auth = mock(AuthenticationService.class);
         UserDetails details = new UserDetails();
         details.setId(7L);
-        when(auth.login("13800138000", "123")).thenReturn(new AuthenticationResult(details));
+        when(auth.login("13800138000", "123", null, "127.0.0.1"))
+            .thenReturn(new AuthenticationResult(details));
         JwtTokenUtil tokens = mock(JwtTokenUtil.class);
         when(tokens.generateToken(details)).thenReturn("signed-token");
         UserController controller = new UserController(mock(CacheService.class), mock(UserService.class),
