@@ -4,6 +4,7 @@ import com.java2nb.novel.core.cache.CacheService;
 import com.java2nb.novel.core.utils.BrowserUtil;
 import com.java2nb.novel.core.utils.Constants;
 import com.java2nb.novel.core.utils.SpringUtil;
+import com.java2nb.novel.core.utils.JwtTokenUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
@@ -14,8 +15,27 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
 class NovelFilterCookieTest {
+
+    @Test void tokenVersionDependencyFailureLeavesRequestUnauthenticated() throws Exception {
+        MockHttpServletRequest request = request("/user/updatePassword");
+        request.addHeader("Authorization", "signed-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        CacheService cache = mock(CacheService.class);
+        JwtTokenUtil tokens = mock(JwtTokenUtil.class);
+        when(tokens.getAuthenticatedUserDetails("signed-token")).thenThrow(new IllegalStateException("db down"));
+        try (MockedStatic<SpringUtil> spring = mockStatic(SpringUtil.class);
+             MockedStatic<BrowserUtil> browser = mockStatic(BrowserUtil.class)) {
+            spring.when(() -> SpringUtil.getBean(CacheService.class)).thenReturn(cache);
+            spring.when(() -> SpringUtil.getBean(JwtTokenUtil.class)).thenReturn(tokens);
+            browser.when(() -> BrowserUtil.isMobile(request)).thenReturn(false);
+            filter.doFilter(request, response, noOpChain);
+        }
+        assertThat(request.getAttribute("novel.auth.checked")).isEqualTo(Boolean.TRUE);
+        assertThat(request.getAttribute("novel.auth.user")).isNull();
+    }
 
     private final NovelFilter filter = new NovelFilter();
     private final FilterChain noOpChain = (request, response) -> { };

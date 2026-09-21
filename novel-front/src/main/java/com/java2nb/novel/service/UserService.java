@@ -104,14 +104,6 @@ public interface UserService {
      * */
     void updateUserInfo(Long userId, User user);
 
-    /**
-     * 更新密码
-     * @param userId 用户id
-     * @param oldPassword 旧密码
-     * @param newPassword 新密码
-     * */
-    void updatePassword(Long userId, String oldPassword, String newPassword);
-
 
     /**
      * 增加用户余额

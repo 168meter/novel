@@ -25,11 +25,15 @@ public class BaseController {
     }
 
     protected UserDetails getUserDetails(HttpServletRequest request) {
+        if (Boolean.TRUE.equals(request.getAttribute("novel.auth.checked"))) {
+            Object authenticated = request.getAttribute("novel.auth.user");
+            return authenticated instanceof UserDetails details ? details : null;
+        }
         String token = getToken(request);
         if(StringUtils.isBlank(token)){
             return null;
         }else{
-            return jwtTokenUtil.getUserDetailsFromToken(token);
+            return jwtTokenUtil.getAuthenticatedUserDetails(token);
         }
     }
 

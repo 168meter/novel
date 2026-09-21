@@ -7,6 +7,8 @@ import com.java2nb.novel.auth.EmailCodeRequestOutcome;
 import com.java2nb.novel.auth.dto.EmailCodeRequest;
 import com.java2nb.novel.auth.dto.LoginRequest;
 import com.java2nb.novel.auth.dto.RegisterRequest;
+import com.java2nb.novel.auth.dto.PasswordResetRequest;
+import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 import com.java2nb.novel.core.cache.CacheService;
 import com.java2nb.novel.core.enums.ResponseStatus;
 import com.java2nb.novel.entity.User;
@@ -84,19 +86,39 @@ public class UserController extends BaseController {
 
     }
 
+    @PostMapping("password-reset/email-code")
+    public RestResult<?> requestPasswordResetCode(@Validated @ModelAttribute EmailCodeRequest codeRequest,
+                                                  HttpServletRequest request) {
+        EmailCodeRequestOutcome outcome = authenticationService.requestPasswordResetCode(
+            codeRequest.email(), request.getRemoteAddr());
+        return switch (outcome) {
+            case ACCEPTED -> RestResult.ok();
+            case EMAIL_LIMITED, IP_LIMITED -> RestResult.fail(ResponseStatus.AUTH_CODE_LIMITED);
+            case UNAVAILABLE -> RestResult.fail(ResponseStatus.AUTH_UNAVAILABLE);
+        };
+    }
+
+    @PostMapping("password-reset")
+    public RestResult<?> resetPassword(@Validated @ModelAttribute PasswordResetRequest resetRequest) {
+        authenticationService.resetPassword(resetRequest);
+        return RestResult.ok();
+    }
+
 
     /**
      * 刷新token
      */
     @PostMapping("refreshToken")
     public RestResult<?> refreshToken(HttpServletRequest request) {
-        String token = getToken(request);
-        if (jwtTokenUtil.canRefresh(token)) {
-            token = jwtTokenUtil.refreshToken(token);
+        UserDetails userDetail = getUserDetails(request);
+        if (userDetail != null) {
+            final String username;
+            try { username = authenticationService.legacyUsername(userDetail.getId()); }
+            catch (RuntimeException unavailable) { return RestResult.fail(ResponseStatus.AUTH_UNAVAILABLE); }
+            String token = jwtTokenUtil.generateToken(userDetail);
             Map<String, Object> data = new HashMap<>(2);
             data.put("token", token);
-            UserDetails userDetail = jwtTokenUtil.getUserDetailsFromToken(token);
-            data.put("username", userDetail.getUsername());
+            data.put("username", username);
             data.put("nickName", userDetail.getNickName());
             return RestResult.ok(data);
 
@@ -251,11 +273,14 @@ public class UserController extends BaseController {
         if (userDetails == null) {
             return RestResult.fail(ResponseStatus.NO_LOGIN);
         }
-        if (!(StringUtils.isNotBlank(newPassword1) && newPassword1.equals(newPassword2))) {
-            RestResult.fail(ResponseStatus.TWO_PASSWORD_DIFF);
+        if (!StringUtils.equals(newPassword1, newPassword2)) {
+            return RestResult.fail(ResponseStatus.TWO_PASSWORD_DIFF);
         }
-        userService.updatePassword(userDetails.getId(), oldPassword, newPassword1);
-        return RestResult.ok();
+        UserDetails updated = authenticationService.changePassword(userDetails.getId(),
+            new PasswordChangeRequest(oldPassword, newPassword1, newPassword2)).userDetails();
+        Map<String, Object> data = new HashMap<>(1);
+        data.put("token", jwtTokenUtil.generateToken(updated));
+        return RestResult.ok(data);
     }
 
     /**
