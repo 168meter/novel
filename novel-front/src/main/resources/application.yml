@@ -5,6 +5,15 @@ spring:
   profiles:
     active: dev
     include: website,alipay,oss
+  mail:
+    host: smtp.163.com
+    port: 465
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
 jwt:
   secret: ${JWT_SECRET}

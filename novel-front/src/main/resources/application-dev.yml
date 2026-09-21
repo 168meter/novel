@@ -1,6 +1,9 @@
 spring:
   config:
     import: classpath:application-common-dev.yml
+  mail:
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
   kafka:
     bootstrap-servers: 127.0.0.1:9092
     producer:
