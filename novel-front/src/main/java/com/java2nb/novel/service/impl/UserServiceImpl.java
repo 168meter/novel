@@ -13,7 +13,6 @@ import com.java2nb.novel.vo.BookShelfVO;
 import com.java2nb.novel.vo.UserFeedbackVO;
 import io.github.xxyopen.model.page.PageBean;
 import io.github.xxyopen.model.page.builder.pagehelper.PageBuilder;
-import io.github.xxyopen.util.IdWorker;
 import io.github.xxyopen.util.MD5Util;
 import io.github.xxyopen.web.exception.BusinessException;
 import io.github.xxyopen.web.util.BeanUtil;
@@ -24,7 +23,6 @@ import org.mybatis.dynamic.sql.delete.render.DeleteStatementProvider;
 import org.mybatis.dynamic.sql.render.RenderingStrategies;
 import org.mybatis.dynamic.sql.select.render.SelectStatementProvider;
 import org.mybatis.dynamic.sql.update.render.UpdateStatementProvider;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,41 +56,6 @@ public class UserServiceImpl implements UserService {
     private final UserFeedbackMapper userFeedbackMapper;
 
     private final UserBuyRecordMapper userBuyRecordMapper;
-
-    private final IdWorker idWorker = IdWorker.INSTANCE;
-
-
-    @Override
-    public UserDetails register(User user) {
-        //查询用户名是否已注册
-        SelectStatementProvider selectStatement = select(count(id))
-            .from(UserDynamicSqlSupport.user)
-            .where(username, isEqualTo(user.getUsername()))
-            .build()
-            .render(RenderingStrategies.MYBATIS3);
-        long count = userMapper.count(selectStatement);
-        if (count > 0) {
-            //用户名已注册
-            throw new BusinessException(ResponseStatus.USERNAME_EXIST);
-        }
-        User entity = new User();
-        BeanUtils.copyProperties(user, entity);
-        //数据库生成注册记录
-        Long id = idWorker.nextId();
-        entity.setId(id);
-        entity.setNickName(entity.getUsername());
-        Date currentDate = new Date();
-        entity.setCreateTime(currentDate);
-        entity.setUpdateTime(currentDate);
-        entity.setPassword(MD5Util.MD5Encode(entity.getPassword(), Charsets.UTF_8.name()));
-        userMapper.insertSelective(entity);
-        //生成UserDetail对象并返回
-        UserDetails userDetails = new UserDetails();
-        userDetails.setId(id);
-        userDetails.setUsername(entity.getUsername());
-        userDetails.setNickName(entity.getNickName());
-        return userDetails;
-    }
 
     @Override
     public UserDetails login(User user) {

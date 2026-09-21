@@ -3,17 +3,17 @@ package com.java2nb.novel.controller;
 
 import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.auth.AuthenticationService;
+import com.java2nb.novel.auth.EmailCodeRequestOutcome;
+import com.java2nb.novel.auth.dto.EmailCodeRequest;
 import com.java2nb.novel.auth.dto.LoginRequest;
+import com.java2nb.novel.auth.dto.RegisterRequest;
 import com.java2nb.novel.core.cache.CacheService;
 import com.java2nb.novel.core.enums.ResponseStatus;
-import com.java2nb.novel.core.utils.IpUtil;
-import com.java2nb.novel.core.utils.RandomValidateCodeUtil;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.entity.UserBuyRecord;
 import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.UserService;
 import io.github.xxyopen.model.resp.RestResult;
-import io.github.xxyopen.web.valid.AddGroup;
 import io.github.xxyopen.web.valid.UpdateGroup;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -60,21 +60,22 @@ public class UserController extends BaseController {
 
     }
 
-    /**
-     * 注册
-     */
+    @PostMapping("register/email-code")
+    public RestResult<?> requestRegistrationCode(@Validated @ModelAttribute EmailCodeRequest codeRequest,
+                                                  HttpServletRequest request) {
+        EmailCodeRequestOutcome outcome = authenticationService.requestRegistrationCode(
+            codeRequest.email(), request.getRemoteAddr());
+        return switch (outcome) {
+            case ACCEPTED -> RestResult.ok();
+            case EMAIL_LIMITED, IP_LIMITED -> RestResult.fail(ResponseStatus.AUTH_CODE_LIMITED);
+            case UNAVAILABLE -> RestResult.fail(ResponseStatus.AUTH_UNAVAILABLE);
+        };
+    }
+
+    /** Email and code are verified by the authentication service before a user is inserted. */
     @PostMapping("register")
-    public RestResult<?> register(@Validated({AddGroup.class}) User user,
-        @RequestParam(value = "velCode", defaultValue = "") String velCode, HttpServletRequest request) {
-
-        //判断验证码是否正确
-        if (!velCode.equals(
-            cacheService.get(RandomValidateCodeUtil.RANDOM_CODE_KEY + ":" + IpUtil.getRealIp(request)))) {
-            return RestResult.fail(ResponseStatus.VEL_CODE_ERROR);
-        }
-
-        //注册
-        UserDetails userDetails = userService.register(user);
+    public RestResult<?> register(@Validated @ModelAttribute RegisterRequest registerRequest) {
+        UserDetails userDetails = authenticationService.register(registerRequest).userDetails();
         Map<String, Object> data = new HashMap<>(1);
         data.put("token", jwtTokenUtil.generateToken(userDetails));
 
