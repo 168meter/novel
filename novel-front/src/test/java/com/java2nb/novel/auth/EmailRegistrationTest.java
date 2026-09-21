@@ -6,6 +6,8 @@ import com.java2nb.novel.auth.dto.EmailCodeRequest;
 import com.java2nb.novel.auth.mail.AuthMailService;
 import com.java2nb.novel.auth.password.PasswordHash;
 import com.java2nb.novel.auth.password.PasswordService;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.mapper.FrontUserMapper;
 import io.github.xxyopen.web.exception.BusinessException;
@@ -29,13 +31,16 @@ class EmailRegistrationTest {
     private CaptchaService captcha;
     private AuthMailService mail;
     private DefaultAuthenticationService service;
+    private SimpleMeterRegistry metrics;
 
     @BeforeEach void setUp() {
         users = mock(FrontUserMapper.class);
         passwords = mock(PasswordService.class);
         captcha = mock(CaptchaService.class);
         mail = mock(AuthMailService.class);
-        service = new DefaultAuthenticationService(users, passwords, "dummy-hash", captcha, mail);
+        metrics = new SimpleMeterRegistry();
+        service = new DefaultAuthenticationService(users, passwords, "dummy-hash", captcha, mail,
+            nullSafeSecurity(), new AuthenticationMetrics(metrics));
     }
 
     @Test void validCodeRequestSendsToNormalizedEmail() {
@@ -46,6 +51,8 @@ class EmailRegistrationTest {
         assertThat(service.requestRegistrationCode(" Reader@Example.COM ", "127.0.0.1"))
             .isEqualTo(EmailCodeRequestOutcome.ACCEPTED);
         verify(mail).submit(CaptchaPurpose.REGISTER, "reader@example.com", "123456", true);
+        assertThat(metrics.counter("novel.auth.captcha.request", "purpose", "register", "outcome", "accepted").count())
+            .isEqualTo(1);
     }
 
     @Test void existingEmailUsesNoMailTaskAndSamePublicResult() {
@@ -66,6 +73,8 @@ class EmailRegistrationTest {
         assertThat(service.requestRegistrationCode("reader@example.com", "127.0.0.1"))
             .isEqualTo(EmailCodeRequestOutcome.EMAIL_LIMITED);
         verifyNoInteractions(mail);
+        assertThat(metrics.counter("novel.auth.captcha.request", "purpose", "register", "outcome", "email_limited").count())
+            .isEqualTo(1);
     }
 
     @Test void ipQuotaIsDistinctFromEmailQuotaWithoutRevealingAccountState() {
@@ -103,6 +112,8 @@ class EmailRegistrationTest {
         assertThat(user.getNickName()).doesNotContain("reader", "@", ".com");
         assertThat(result.userDetails().getUsername()).isNull();
         assertThat(result.userDetails().getNickName()).isEqualTo(user.getNickName());
+        assertThat(metrics.counter("novel.auth.captcha.verify", "purpose", "register", "outcome", "success").count())
+            .isEqualTo(1);
     }
 
     @Test void wrongPurposeCodeCannotRegister() {
@@ -161,5 +172,9 @@ class EmailRegistrationTest {
 
     private static RegisterRequest validRequest() {
         return new RegisterRequest("reader@example.com", "123456", "password123", "password123");
+    }
+
+    private static com.java2nb.novel.auth.security.LoginSecurityService nullSafeSecurity() {
+        return mock(com.java2nb.novel.auth.security.LoginSecurityService.class);
     }
 }

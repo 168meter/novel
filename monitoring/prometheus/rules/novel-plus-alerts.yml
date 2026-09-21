@@ -164,3 +164,50 @@ groups:
         annotations:
           summary: Home recommendation process-local snapshot is stale
           description: A novel-front process has reported a successful local recommendation snapshot older than fifteen minutes for five minutes; this gauge does not represent global distributed freshness.
+
+      - alert: AuthenticationMailDeliveryFailures
+        expr: sum(increase(novel_auth_mail_delivery_total{outcome="failed"}[5m])) >= 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication email delivery is failing
+          description: Authentication email delivery failures have continued for two minutes.
+
+      - alert: AuthenticationMailQueueRejections
+        expr: sum(increase(novel_auth_mail_delivery_total{outcome="rejected"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication email queue rejected work
+          description: The bounded authentication email executor rejected at least one task in five minutes.
+
+      - alert: AuthenticationDependencyErrors
+        expr: >-
+          sum(increase(novel_auth_login_total{outcome="dependency_error"}[5m]))
+          + sum(increase(novel_auth_captcha_request_total{outcome="dependency_error"}[5m]))
+          + sum(increase(novel_auth_jwt_version_total{outcome="dependency_error"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication dependency errors detected
+          description: Login or verification-code requests encountered a dependency error in five minutes.
+
+      - alert: AuthenticationLoginFailuresHigh
+        expr: >-
+          sum(rate(novel_auth_login_total{outcome=~"bad_credentials|account_limited|captcha_required|rate_limited"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Authentication login failures are unusually high
+          description: Credential or rate-limit failures exceeded five requests per second for two minutes.
+
+      - alert: AuthenticationPasswordUpgradeFailures
+        expr: sum(increase(novel_auth_password_upgrade_total{outcome="failed"}[15m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Password upgrades are persistently failing
+          description: Best-effort legacy password upgrades have continued failing for five minutes.

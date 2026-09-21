@@ -3,6 +3,8 @@ package com.java2nb.novel.auth.password;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.Argon2Operation;
 
 public final class Argon2idPasswordAlgorithmHandler implements PasswordAlgorithmHandler {
     private static final Pattern PARAMETERS = Pattern.compile(
@@ -11,20 +13,29 @@ public final class Argon2idPasswordAlgorithmHandler implements PasswordAlgorithm
     private final int memoryKiB;
     private final int iterations;
     private final int parallelism;
+    private final AuthenticationMetrics metrics;
 
     public Argon2idPasswordAlgorithmHandler(Argon2PasswordEncoder encoder,
                                             int memoryKiB, int iterations, int parallelism) {
+        this(encoder, memoryKiB, iterations, parallelism, AuthenticationMetrics.noop());
+    }
+
+    public Argon2idPasswordAlgorithmHandler(Argon2PasswordEncoder encoder,
+                                            int memoryKiB, int iterations, int parallelism,
+                                            AuthenticationMetrics metrics) {
         this.encoder = encoder;
         this.memoryKiB = memoryKiB;
         this.iterations = iterations;
         this.parallelism = parallelism;
+        this.metrics = metrics;
     }
 
     @Override public String algorithm() { return PasswordAlgorithm.ARGON2ID.name(); }
 
     @Override public PasswordHash encode(String rawPassword) {
         requireRaw(rawPassword);
-        return new PasswordHash(encoder.encode(rawPassword), algorithm());
+        return metrics.argon2(Argon2Operation.ENCODE,
+            () -> new PasswordHash(encoder.encode(rawPassword), algorithm()));
     }
 
     @Override public boolean matches(String rawPassword, String encodedPassword) {
@@ -32,7 +43,8 @@ public final class Argon2idPasswordAlgorithmHandler implements PasswordAlgorithm
         if (encodedPassword == null || encodedPassword.isBlank()) return false;
         if (!PARAMETERS.matcher(encodedPassword).matches()) return false;
         try {
-            return encoder.matches(rawPassword, encodedPassword);
+            return metrics.argon2(Argon2Operation.VERIFY,
+                () -> encoder.matches(rawPassword, encodedPassword));
         } catch (RuntimeException ex) {
             return false;
         }

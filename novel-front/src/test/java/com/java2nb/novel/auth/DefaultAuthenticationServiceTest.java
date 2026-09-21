@@ -2,6 +2,8 @@ package com.java2nb.novel.auth;
 
 import com.java2nb.novel.auth.password.PasswordHash;
 import com.java2nb.novel.auth.password.PasswordService;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.java2nb.novel.core.bean.UserDetails;
 import com.java2nb.novel.entity.User;
 import com.java2nb.novel.mapper.FrontUserMapper;
@@ -18,11 +20,14 @@ class DefaultAuthenticationServiceTest {
     private FrontUserMapper users;
     private PasswordService passwords;
     private DefaultAuthenticationService service;
+    private SimpleMeterRegistry metrics;
 
     @BeforeEach void setUp() {
         users = mock(FrontUserMapper.class);
         passwords = mock(PasswordService.class);
-        service = new DefaultAuthenticationService(users, passwords, "dummy-argon-hash");
+        metrics = new SimpleMeterRegistry();
+        service = new DefaultAuthenticationService(users, passwords, "dummy-argon-hash",
+            new AuthenticationMetrics(metrics));
     }
 
     @Test void legacyPhoneLoginUpgradesOnlyAfterSuccessfulVerification() {
@@ -37,6 +42,8 @@ class DefaultAuthenticationServiceTest {
         assertThat(result.getId()).isEqualTo(7L);
         assertThat(result.getNickName()).isEqualTo("reader");
         verify(users).upgradePasswordIfCurrent(eq(7L), eq("old-hash"), eq("MD5"), eq("new-hash"), any(LocalDateTime.class));
+        assertThat(metrics.counter("novel.auth.password.upgrade", "outcome", "success").count()).isEqualTo(1);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "success").count()).isEqualTo(1);
     }
 
     @Test void migrationFailureDoesNotBlockVerifiedLogin() {
@@ -47,6 +54,7 @@ class DefaultAuthenticationServiceTest {
         when(passwords.encode("old-pass")).thenThrow(new IllegalStateException("db-or-hash-failure"));
 
         assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
+        assertThat(metrics.counter("novel.auth.password.upgrade", "outcome", "failed").count()).isEqualTo(1);
     }
 
     @Test void emailLoginUsesArgon2WithoutRehashWhenCurrent() {
@@ -62,6 +70,7 @@ class DefaultAuthenticationServiceTest {
         assertThatThrownBy(() -> service.login("missing@example.com", "secret", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
         verify(passwords).matches("secret", "dummy-argon-hash", "ARGON2ID");
+        assertThat(metrics.counter("novel.auth.login", "outcome", "bad_credentials").count()).isEqualTo(1);
     }
 
     @Test void dummyVerifierFailureStillReturnsGenericCredentialError() {
@@ -69,6 +78,17 @@ class DefaultAuthenticationServiceTest {
             .thenThrow(new IllegalArgumentException("malformed dummy hash"));
         assertThatThrownBy(() -> service.login("missing@example.com", "secret", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "bad_credentials").count()).isEqualTo(1);
+    }
+
+    @Test void databaseLookupFailureRecordsDependencyErrorAndFailsClosed() {
+        when(users.selectAuthByEmail("reader@example.com"))
+            .thenThrow(new IllegalStateException("database unavailable"));
+        assertThatThrownBy(() -> service.login("reader@example.com", "secret", null, "127.0.0.1"))
+            .isInstanceOf(com.java2nb.novel.auth.security.LoginSecurityException.class)
+            .extracting(error -> ((com.java2nb.novel.auth.security.LoginSecurityException) error).decision())
+            .isEqualTo(com.java2nb.novel.auth.security.LoginSecurityDecision.DEPENDENCY_ERROR);
+        assertThat(metrics.counter("novel.auth.login", "outcome", "dependency_error").count()).isEqualTo(1);
     }
 
     @Test void incorrectPasswordNeverUpgrades() {
@@ -86,6 +106,7 @@ class DefaultAuthenticationServiceTest {
         when(passwords.needsUpgrade("old-hash", "MD5")).thenReturn(true);
         when(passwords.encode("old-pass")).thenReturn(new PasswordHash("new-hash", "ARGON2ID"));
         assertThat(service.login("13800138000", "old-pass", null, "127.0.0.1").userDetails().getId()).isEqualTo(7L);
+        assertThat(metrics.counter("novel.auth.password.upgrade", "outcome", "race_lost").count()).isEqualTo(1);
     }
 
     @Test void secondLoginVerifiesTheUpgradedAlgorithm() {
@@ -110,6 +131,7 @@ class DefaultAuthenticationServiceTest {
         assertThatThrownBy(() -> service.login("13800138000", "pass", null, "127.0.0.1"))
             .isInstanceOf(BusinessException.class);
         verify(passwords, never()).encode(anyString());
+        assertThat(metrics.counter("novel.auth.login", "outcome", "bad_credentials").count()).isEqualTo(1);
     }
 
     private static User user(String username, String email, String hash, String algorithm) {

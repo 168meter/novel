@@ -60,7 +60,11 @@ foreach ($metric in @(
     'novel_home_recommendation_local_age_seconds',
     'novel_home_recommendation_refresh_total',
     'novel_home_recommendation_generation_seconds_count',
-    'novel_home_recommendation_source_total'
+    'novel_home_recommendation_source_total',
+    'novel_auth_captcha_request_total', 'novel_auth_captcha_verify_total',
+    'novel_auth_mail_delivery_total', 'novel_auth_login_total',
+    'novel_auth_password_upgrade_total', 'novel_auth_jwt_version_total',
+    'novel_auth_argon2_duration_seconds_count'
 )) {
     $series = Invoke-PrometheusQuery $metric
     if ($series.Count -eq 0) {
@@ -115,6 +119,11 @@ $expectedAlerts = @(
     'ReadingDedupCleanupFailures'
     'HomeRecommendationRefreshDbErrors'
     'HomeRecommendationSnapshotStale'
+    'AuthenticationMailDeliveryFailures'
+    'AuthenticationMailQueueRejections'
+    'AuthenticationDependencyErrors'
+    'AuthenticationLoginFailuresHigh'
+    'AuthenticationPasswordUpgradeFailures'
 )
 foreach ($alert in $expectedAlerts) {
     if ($alert -notin $loadedAlerts) {
@@ -147,7 +156,9 @@ foreach ($panelTitle in @(
     'Reading Persisted Seconds / s', 'Reading Deduplicated Events / s',
     'Reading Daily Rows Updated / s', 'Reading Kafka Retry / DLT', 'Reading Dedup Cleanup'
     'Home Recommendation Sources', 'Home Recommendation Refresh Outcomes',
-    'Home Recommendation Generation Duration', 'Home Recommendation Local Snapshot Age'
+    'Home Recommendation Generation Duration', 'Home Recommendation Local Snapshot Age',
+    'Authentication Login / Captcha Requests', 'Authentication Captcha Verify / Mail',
+    'Authentication Password Upgrade / JWT', 'Authentication Argon2 Average Duration'
 )) {
     if ($panelTitle -notin $panelTitles) {
         throw "Grafana executor panel is missing: $panelTitle"

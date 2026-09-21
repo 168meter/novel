@@ -12,6 +12,7 @@ import com.java2nb.novel.auth.password.DefaultPasswordService;
 import com.java2nb.novel.auth.password.Md5PasswordAlgorithmHandler;
 import com.java2nb.novel.auth.password.PasswordAlgorithmHandler;
 import com.java2nb.novel.auth.password.PasswordService;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
 import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
@@ -40,9 +41,10 @@ public class AuthConfiguration {
 
     @Bean
     PasswordAlgorithmHandler argon2idPasswordAlgorithmHandler(Argon2PasswordEncoder encoder,
-                                                              AuthPasswordProperties properties) {
+                                                              AuthPasswordProperties properties,
+                                                              AuthenticationMetrics metrics) {
         return new Argon2idPasswordAlgorithmHandler(encoder, properties.getMemoryKiB(),
-            properties.getIterations(), properties.getParallelism());
+            properties.getIterations(), properties.getParallelism(), metrics);
     }
 
     @Bean
@@ -56,8 +58,8 @@ public class AuthConfiguration {
     }
 
     @Bean
-    AuthMetrics authMetrics(MeterRegistry registry) {
-        return new AuthMetrics(registry);
+    AuthenticationMetrics authenticationMetrics(MeterRegistry registry) {
+        return new AuthenticationMetrics(registry);
     }
 
     private static void requireSecret(String value, String environmentVariable) {
@@ -65,6 +67,4 @@ public class AuthConfiguration {
             throw new IllegalStateException("Required environment variable is missing: " + environmentVariable);
         }
     }
-
-    public record AuthMetrics(MeterRegistry registry) { }
 }

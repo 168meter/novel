@@ -10,6 +10,11 @@ import com.java2nb.novel.auth.dto.RegisterRequest;
 import com.java2nb.novel.auth.dto.PasswordResetRequest;
 import com.java2nb.novel.auth.dto.PasswordChangeRequest;
 import com.java2nb.novel.auth.mail.AuthMailService;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.CaptchaRequestOutcome;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.CaptchaVerifyOutcome;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.LoginOutcome;
+import com.java2nb.novel.auth.metrics.AuthenticationMetrics.PasswordUpgradeOutcome;
 import com.java2nb.novel.auth.password.PasswordHash;
 import com.java2nb.novel.auth.password.PasswordService;
 import com.java2nb.novel.auth.security.LoginSecurityDecision;
@@ -37,34 +42,48 @@ public class DefaultAuthenticationService implements AuthenticationService {
     private final CaptchaService captcha;
     private final AuthMailService mail;
     private final LoginSecurityService loginSecurity;
+    private final AuthenticationMetrics metrics;
     private final IdWorker idWorker = IdWorker.INSTANCE;
 
     @Autowired
     public DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords,
                                         CaptchaService captcha, AuthMailService mail,
-                                        LoginSecurityService loginSecurity) {
+                                        LoginSecurityService loginSecurity,
+                                        AuthenticationMetrics metrics) {
         this(users, passwords, passwords.encode("anonymous-account-dummy-password").encoded(), captcha, mail,
-            loginSecurity);
+            loginSecurity, metrics);
     }
 
     DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash) {
-        this(users, passwords, dummyHash, null, null, permissiveSecurity());
+        this(users, passwords, dummyHash, null, null, permissiveSecurity(), AuthenticationMetrics.noop());
+    }
+
+    DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
+                                 AuthenticationMetrics metrics) {
+        this(users, passwords, dummyHash, null, null, permissiveSecurity(), metrics);
     }
 
     DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
                                  CaptchaService captcha, AuthMailService mail) {
-        this(users, passwords, dummyHash, captcha, mail, permissiveSecurity());
+        this(users, passwords, dummyHash, captcha, mail, permissiveSecurity(), AuthenticationMetrics.noop());
     }
 
     DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
                                  CaptchaService captcha, AuthMailService mail,
                                  LoginSecurityService loginSecurity) {
+        this(users, passwords, dummyHash, captcha, mail, loginSecurity, AuthenticationMetrics.noop());
+    }
+
+    DefaultAuthenticationService(FrontUserMapper users, PasswordService passwords, String dummyHash,
+                                 CaptchaService captcha, AuthMailService mail,
+                                 LoginSecurityService loginSecurity, AuthenticationMetrics metrics) {
         this.users = users;
         this.passwords = passwords;
         this.dummyHash = dummyHash;
         this.captcha = captcha;
         this.mail = mail;
         this.loginSecurity = loginSecurity;
+        this.metrics = metrics;
     }
 
     @Override
@@ -82,27 +101,39 @@ public class DefaultAuthenticationService implements AuthenticationService {
         try { normalized = EmailNormalizer.normalize(email); }
         catch (IllegalArgumentException invalid) { throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST); }
         if (clientAddress == null || clientAddress.isBlank()) {
+            metrics.captchaRequest(purpose, CaptchaRequestOutcome.DEPENDENCY_ERROR);
             return EmailCodeRequestOutcome.UNAVAILABLE;
         }
         CaptchaIssue issued;
         try {
             issued = captcha.issue(purpose, normalized, clientAddress);
         } catch (RuntimeException dependencyFailure) {
+            metrics.captchaRequest(purpose, CaptchaRequestOutcome.DEPENDENCY_ERROR);
             return EmailCodeRequestOutcome.UNAVAILABLE;
         }
-        if (issued.outcome() == CaptchaIssueOutcome.IP_LIMITED) return EmailCodeRequestOutcome.IP_LIMITED;
-        if (issued.outcome() != CaptchaIssueOutcome.ISSUED) return EmailCodeRequestOutcome.EMAIL_LIMITED;
+        if (issued.outcome() == CaptchaIssueOutcome.IP_LIMITED) {
+            metrics.captchaRequest(purpose, CaptchaRequestOutcome.IP_LIMITED);
+            return EmailCodeRequestOutcome.IP_LIMITED;
+        }
+        if (issued.outcome() != CaptchaIssueOutcome.ISSUED) {
+            metrics.captchaRequest(purpose, CaptchaRequestOutcome.EMAIL_LIMITED);
+            return EmailCodeRequestOutcome.EMAIL_LIMITED;
+        }
         try {
             boolean exists = users.selectAuthByEmail(normalized).isPresent();
             boolean deliver = purpose == CaptchaPurpose.REGISTER ? !exists : exists;
             boolean accepted = mail.submit(purpose, normalized,
                 deliver ? issued.code() : null, deliver);
-            if (accepted) return EmailCodeRequestOutcome.ACCEPTED;
+            if (accepted) {
+                metrics.captchaRequest(purpose, CaptchaRequestOutcome.ACCEPTED);
+                return EmailCodeRequestOutcome.ACCEPTED;
+            }
         } catch (RuntimeException dependencyFailure) {
             // No account-state or dependency details enter the public response.
         }
         try { captcha.revoke(purpose, normalized, issued.code()); }
         catch (RuntimeException ignored) { /* Redis is already unavailable. */ }
+        metrics.captchaRequest(purpose, CaptchaRequestOutcome.DEPENDENCY_ERROR);
         return EmailCodeRequestOutcome.UNAVAILABLE;
     }
 
@@ -121,6 +152,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
         final CaptchaConsumeOutcome consumed;
         try { consumed = captcha.consume(CaptchaPurpose.REGISTER, normalized, request.code()); }
         catch (RuntimeException unavailable) { throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE); }
+        metrics.captchaVerify(CaptchaPurpose.REGISTER, captchaOutcome(consumed));
         if (consumed != CaptchaConsumeOutcome.CONSUMED) {
             throw new BusinessException(ResponseStatus.AUTH_INVALID_CODE);
         }
@@ -162,36 +194,64 @@ public class DefaultAuthenticationService implements AuthenticationService {
             normalized = normalized.toLowerCase(Locale.ROOT);
         }
         if (clientAddress == null || clientAddress.isBlank()) {
+            metrics.login(LoginOutcome.DEPENDENCY_ERROR);
             throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
         }
         String securityAccount = normalized.isBlank() || normalized.length() > 254
             ? "invalid-account" : normalized;
-        LoginSecurityDecision decision = loginSecurity.check(securityAccount, clientAddress);
+        final LoginSecurityDecision decision;
+        try {
+            decision = loginSecurity.check(securityAccount, clientAddress);
+        } catch (RuntimeException unavailable) {
+            metrics.login(LoginOutcome.DEPENDENCY_ERROR);
+            throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
+        }
         if (decision == LoginSecurityDecision.DEPENDENCY_ERROR
             || decision == LoginSecurityDecision.RATE_LIMITED) {
+            metrics.login(decision == LoginSecurityDecision.RATE_LIMITED
+                ? LoginOutcome.RATE_LIMITED : LoginOutcome.DEPENDENCY_ERROR);
             throw decision == LoginSecurityDecision.RATE_LIMITED
                 ? new LoginSecurityException(decision, loginSecurity.retryAfterSeconds())
                 : new LoginSecurityException(decision);
         }
-        if (decision == LoginSecurityDecision.ACCOUNT_LIMITED) throw badCredentials();
-        if (decision == LoginSecurityDecision.CAPTCHA_REQUIRED
-            && (imageCaptcha == null || !loginSecurity.consumeImageCaptcha(clientAddress, imageCaptcha))) {
-            throw new LoginSecurityException(LoginSecurityDecision.CAPTCHA_REQUIRED);
+        if (decision == LoginSecurityDecision.ACCOUNT_LIMITED) {
+            metrics.login(LoginOutcome.ACCOUNT_LIMITED);
+            throw badCredentials();
+        }
+        if (decision == LoginSecurityDecision.CAPTCHA_REQUIRED) {
+            final boolean consumedCaptcha;
+            try {
+                consumedCaptcha = imageCaptcha != null
+                    && loginSecurity.consumeImageCaptcha(clientAddress, imageCaptcha);
+            } catch (RuntimeException unavailable) {
+                metrics.login(LoginOutcome.DEPENDENCY_ERROR);
+                throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
+            }
+            if (!consumedCaptcha) {
+                metrics.login(LoginOutcome.CAPTCHA_REQUIRED);
+                throw new LoginSecurityException(LoginSecurityDecision.CAPTCHA_REQUIRED);
+            }
         }
         if (normalized.isBlank() || normalized.length() > 254 || rawPassword == null
             || rawPassword.isBlank() || rawPassword.length() > 1024) {
             try { passwords.matches(rawPassword == null ? "" : rawPassword, dummyHash, "ARGON2ID"); }
             catch (RuntimeException ignored) { }
             recordFailure(securityAccount, clientAddress);
+            metrics.login(LoginOutcome.BAD_CREDENTIALS);
             throw badCredentials();
         }
         Optional<User> found;
-        if (normalized.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
-            found = users.selectAuthByEmail(normalized);
-        } else if (normalized.matches("^1\\d{10}$")) {
-            found = users.selectAuthByLegacyUsername(normalized);
-        } else {
-            found = Optional.empty();
+        try {
+            if (normalized.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                found = users.selectAuthByEmail(normalized);
+            } else if (normalized.matches("^1\\d{10}$")) {
+                found = users.selectAuthByLegacyUsername(normalized);
+            } else {
+                found = Optional.empty();
+            }
+        } catch (RuntimeException unavailable) {
+            metrics.login(LoginOutcome.DEPENDENCY_ERROR);
+            throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
         }
         if (found.isEmpty()) {
             try {
@@ -200,6 +260,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
                 // The same public error is returned even when the verifier itself fails.
             }
             recordFailure(normalized, clientAddress);
+            metrics.login(LoginOutcome.BAD_CREDENTIALS);
             throw badCredentials();
         }
         User user = found.orElseThrow();
@@ -207,24 +268,30 @@ public class DefaultAuthenticationService implements AuthenticationService {
         try {
             if (!passwords.matches(rawPassword, user.getPassword(), user.getPasswordAlgorithm())) {
                 recordFailure(normalized, clientAddress);
+                metrics.login(LoginOutcome.BAD_CREDENTIALS);
                 throw badCredentials();
             }
         } catch (RuntimeException ex) {
             if (ex instanceof BusinessException || ex instanceof LoginSecurityException) throw ex;
             recordFailure(normalized, clientAddress);
+            metrics.login(LoginOutcome.BAD_CREDENTIALS);
             throw badCredentials();
         }
         try { loginSecurity.clearAccountFailures(normalized); }
         catch (RuntimeException unavailable) {
+            metrics.login(LoginOutcome.DEPENDENCY_ERROR);
             throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
         }
         try {
             if (passwords.needsUpgrade(user.getPassword(), user.getPasswordAlgorithm())) {
                 PasswordHash upgraded = passwords.encode(rawPassword);
-                users.upgradePasswordIfCurrent(user.getId(), user.getPassword(), user.getPasswordAlgorithm(),
-                    upgraded.encoded(), LocalDateTime.now());
+                int updated = users.upgradePasswordIfCurrent(user.getId(), user.getPassword(),
+                    user.getPasswordAlgorithm(), upgraded.encoded(), LocalDateTime.now());
+                metrics.passwordUpgrade(updated == 1
+                    ? PasswordUpgradeOutcome.SUCCESS : PasswordUpgradeOutcome.RACE_LOST);
             }
         } catch (RuntimeException ex) {
+            metrics.passwordUpgrade(PasswordUpgradeOutcome.FAILED);
             // A verified legacy user can still log in when best-effort rehashing fails.
         }
         UserDetails details = new UserDetails();
@@ -232,12 +299,14 @@ public class DefaultAuthenticationService implements AuthenticationService {
         details.setUsername(user.getUsername());
         details.setNickName(user.getNickName());
         details.setTokenVersion(user.getTokenVersion());
+        metrics.login(LoginOutcome.SUCCESS);
         return new AuthenticationResult(details);
     }
 
     private void recordFailure(String normalizedAccount, String clientAddress) {
         try { loginSecurity.recordFailure(normalizedAccount, clientAddress); }
         catch (RuntimeException unavailable) {
+            metrics.login(LoginOutcome.DEPENDENCY_ERROR);
             throw new LoginSecurityException(LoginSecurityDecision.DEPENDENCY_ERROR);
         }
     }
@@ -266,6 +335,7 @@ public class DefaultAuthenticationService implements AuthenticationService {
         final CaptchaConsumeOutcome outcome;
         try { outcome = captcha.consume(CaptchaPurpose.RESET_PASSWORD, email, request.code()); }
         catch (RuntimeException unavailable) { throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE); }
+        metrics.captchaVerify(CaptchaPurpose.RESET_PASSWORD, captchaOutcome(outcome));
         if (outcome != CaptchaConsumeOutcome.CONSUMED) {
             throw new BusinessException(ResponseStatus.AUTH_INVALID_CODE);
         }
@@ -323,6 +393,15 @@ public class DefaultAuthenticationService implements AuthenticationService {
     private static boolean validNewPassword(String password, String confirmation) {
         return password != null && password.length() >= 8 && password.length() <= 64
             && password.equals(confirmation);
+    }
+
+    private static CaptchaVerifyOutcome captchaOutcome(CaptchaConsumeOutcome outcome) {
+        return switch (outcome) {
+            case CONSUMED -> CaptchaVerifyOutcome.SUCCESS;
+            case INVALID -> CaptchaVerifyOutcome.INVALID;
+            case TOO_MANY_ATTEMPTS -> CaptchaVerifyOutcome.ATTEMPTS_EXHAUSTED;
+            case EXPIRED -> CaptchaVerifyOutcome.EXPIRED;
+        };
     }
 
     private static BusinessException badCredentials() {
