@@ -25,7 +25,8 @@ public class CommonExceptionHandler {
 
     @ExceptionHandler({BindException.class})
     public RestResult<Void> handlerBindException(BindException e) {
-        log.error(e.getMessage(), e);
+        // Binding exceptions include rejected values, which can be passwords or one-time codes.
+        log.warn("Request validation failed");
         return RestResult.fail(SysResultCode.PARAM_ERROR);
     }
 

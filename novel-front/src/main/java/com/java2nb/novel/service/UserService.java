@@ -19,13 +19,6 @@ import java.util.List;
 public interface UserService {
 
     /**
-     * 用户注册
-     * @param user 用户注册信息类
-     * @return jwt载体信息类
-     * */
-    UserDetails register(User user);
-
-    /**
      * 用户登录
      * @param user 用户登录信息类
      * @return jwt载体信息类

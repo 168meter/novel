@@ -25,6 +25,10 @@ public enum ResponseStatus implements IResultCode {
     TWO_PASSWORD_DIFF(1005, "两次输入的新密码不匹配!"),
     OLD_PASSWORD_ERROR(1006, "旧密码不匹配!"),
     USER_NO_BALANCE(1007, "用户余额不足"),
+    AUTH_INVALID_REQUEST(1008, "请求参数不正确"),
+    AUTH_INVALID_CODE(1009, "验证码无效或已过期"),
+    AUTH_CODE_LIMITED(1010, "请求过于频繁，请稍后再试"),
+    AUTH_UNAVAILABLE(1011, "当前无法完成操作，请稍后重试"),
 
     /**
      * 评论相关错误
