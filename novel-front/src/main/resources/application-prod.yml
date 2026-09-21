@@ -1,6 +1,9 @@
 spring:
   config:
     import: classpath:application-common-prod.yml
+  mail:
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
 
   #静态文件路径配置
   #thymeleaf模版路径配置
