@@ -113,6 +113,14 @@ public class PageController extends BaseController {
     }
 
     /**
+     * 忘记密码页
+     */
+    @RequestMapping(path = "user/forgot_password.html")
+    public String forgotPassword() {
+        return ThreadLocalUtil.getTemplateDir() + "user/forgot_password";
+    }
+
+    /**
      * 用户中心页
      */
     @RequestMapping("user/userinfo.html")
