@@ -415,3 +415,58 @@ using UTF-8. `CREATE TABLE IF NOT EXISTS` preserves existing tables and rows;
 this is initial schema creation, not an upgrade of existing table definitions.
 The behavior test replaces Docker calls and never connects to a database.
 MySQL failures return an error, not a successful application message.
+
+## 认证安全验收与 Argon2 基准
+
+### 本地邮件与应用启动
+
+自动验收使用 Mailpit 截获测试邮件，不会向真实邮箱发送。SMTP 与 UI/API 端口只绑定
+`127.0.0.1`。先在当前 worktree 启动依赖，并在启动应用的同一个 PowerShell 进程注入
+本地高熵密钥；如尚未设置，先执行上方“本地可观测性”中的 `New-LocalSecret` 代码块，
+不要把实际密钥写进脚本、提交记录或截图：
+
+```powershell
+docker compose -f '.\compose.local.yml' up -d mysql redis kafka mailpit prometheus grafana
+& '.\performance\start-front-monitoring.ps1' -RedisPort '6380' -RedisPassword '123456' -UseMailpit
+```
+
+`-UseMailpit` 只覆盖本次本地 Java 进程的 SMTP host/port、关闭 SMTP auth/SSL，并使用
+`acceptance@novel.local` 作为非敏感发件地址；不修改生产 Profile。Mailpit UI 在
+`http://127.0.0.1:8025`，不得映射到公网。真实 163 邮箱只做人工可选检查。
+
+### 脚本契约、基准与完整验收
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& '.\performance\test-authentication-security-script.ps1'
+& '.\performance\benchmark-argon2.ps1' -MemoryKiB 19456 -Iterations 2 `
+    -Parallelism 1 -Samples 50 -TargetConcurrency 4
+& '.\performance\check-authentication-security.ps1'
+```
+
+依赖已完整缓存但 Maven 仓库不可访问时，基准命令可加 `-Offline`。参数只能从脚本允许
+列表选择，并受 512 MiB 并发内存预算约束。结果包含 encode/verify 在单线程和目标并发下
+的 p50、p95 与吞吐，不输出原始密码或哈希。应在最终 Linux 云服务器上重新测量，再通过
+环境变量调整 Argon2 参数；不能仅依据开发机结果降低安全下限。
+
+完整验收创建随机 `@example.test` 邮箱和随机历史手机号：检查新注册 Argon2id、历史 MD5
+首次登录迁移与第二次登录、验证码 10 分钟 TTL/单次消费/60 秒冷却、账户失败限制、IP
+图片验证码升级、重置密码后旧 JWT 失效及认证指标。验证码从 Mailpit API 获取；脚本不读
+应用日志、不反推 Redis 摘要，也不打印密码、验证码、Token 或哈希。`finally` 只删除本次
+创建的用户和邮件，不执行 Redis `KEYS`、`SCAN`、通配符删除或 `FLUSH*`。
+
+### 本地故障演练
+
+容器停机必须双重显式授权，且一次只演练一个依赖：
+
+```powershell
+& '.\performance\check-authentication-security.ps1' -FailureDrill Redis -AllowContainerStop
+& '.\performance\check-authentication-security.ps1' -FailureDrill MySql -AllowContainerStop
+& '.\performance\check-authentication-security.ps1' -FailureDrill Kafka -AllowContainerStop
+& '.\performance\check-authentication-security.ps1' -FailureDrill Smtp -AllowContainerStop
+docker compose -f '.\compose.local.yml' ps
+```
+
+Redis/MySQL 应失败关闭，Kafka 停机不应影响认证，Mailpit 停机时公开响应仍保持统一且已发
+验证码状态应被异步撤销。脚本只接受回环 URL，只停止固定名称的本地容器，并在 `finally`
+恢复自己停止的容器；若出现 `CRITICAL`，立即按提示手工启动对应容器后再继续。

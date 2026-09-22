@@ -584,27 +584,34 @@ docker run --rm --entrypoint /bin/promtool -v "${PWD}/monitoring/prometheus:/etc
 - Create: `performance/benchmark-argon2.ps1`
 - Create: `performance/check-authentication-security.ps1`
 - Create: `performance/test-authentication-security-script.ps1`
+- Modify: `compose.local.yml`
+- Modify: `performance/start-front-monitoring.ps1`
 - Modify: `performance/check-observability.ps1`
 - Modify: `performance/README.md`
 - Modify: `docs/learning/novel-plus-evolution-guide.md`
+- Modify: `docs/superpowers/specs/2026-09-16-authentication-security-design.md`
 
 - [ ] **Step 1: 写脚本行为测试**
 
-模拟服务未启动、错误 SMTP/Redis/MySQL、非法参数和成功输出。脚本必须创建带随机前缀的隔离测试账号，`finally` 仅清理本次证据；失败时保留必要的不可逆 ID，不打印密码/验证码/Token。
+使用临时 fake Maven、fake HTTP 响应和命令适配器模拟服务未启动、错误 SMTP/Redis/MySQL、非法参数和成功输出。先运行脚本并确认因实现缺失而失败。脚本必须创建带随机前缀的隔离测试账号，`finally` 仅清理本次证据；失败时保留必要的不可逆 ID，不打印密码、验证码、Token 或 Argon2 哈希。
 
 - [ ] **Step 2: 实现 Argon2 基准脚本**
 
-参数只从允许列表传给服务端 benchmark runner，输出 p50/p95、吞吐和并发数，不输出哈希。至少测单线程及目标登录并发；在目标 Linux 服务器根据结果调整环境变量，不改代码默认下限。
+`Argon2Benchmark` 只在显式系统属性开启时执行。PowerShell 参数使用固定允许列表，并限制 `memoryKiB * targetConcurrency <= 512 MiB`。一次 Maven 运行分别输出 encode/verify 的单线程和目标并发共四行结果；包装脚本验证 operation、samples、p50/p95、吞吐、失败数和结果完整性后才输出，不回显 Maven 原始输出或哈希。在目标 Linux 服务器根据结果调整环境变量，不改代码默认下限。
 
-- [ ] **Step 3: 实现本地完整验收**
+- [ ] **Step 3: 增加本地 Mailpit**
 
-自动验证：新注册为 Argon2id；构造 MD5 用户首次登录升级且第二次登录成功；验证码 TTL/单次消费/60 秒冷却；账号失败限制；IP captcha 升级；重置后旧 Token 失效；指标存在。邮件采用专用测试收件箱时才启用真实发送开关，默认运行使用可观测 fake sender。
+在 `compose.local.yml` 增加固定版本 Mailpit 服务，SMTP `1025` 与 HTTP API `8025` 都只映射到 `127.0.0.1`，并配置健康检查。README 给出仅用于验收的启动参数：应用 SMTP 指向 `127.0.0.1:1025`，关闭 auth/SSL，发件地址使用 `acceptance@novel.local`。生产配置和真实 163 邮箱流程不改。
 
-- [ ] **Step 4: 实现故障演练**
+- [ ] **Step 4: 实现本地完整验收**
 
-分别短暂停止 Redis、MySQL、Kafka 无关且不应影响认证判断、以及模拟 SMTP 失败，验证失败策略与自动恢复。脚本必须在 `finally` 恢复自己停止的容器。
+每次生成随机 `@example.test` 邮箱，通过 Mailpit API 按收件人和主题定位本次邮件并提取验证码。自动验证：新注册为 Argon2id；构造隔离 MD5 用户首次登录升级且第二次登录成功；验证码 TTL/单次消费/60 秒冷却；账号失败限制；IP captcha 升级；重置后旧 Token 失效；指标存在。不得读取日志或 Redis 摘要取得验证码。默认不连接真实邮箱。
 
-- [ ] **Step 5: 运行完整回归**
+- [ ] **Step 5: 实现故障演练**
+
+通过 `-FailureDrill Redis|MySql|Kafka|Smtp -AllowContainerStop` 显式启用。分别短暂停止依赖，验证 Redis/MySQL 失败关闭、Kafka 无关且不影响认证判断、Mailpit 停止后接口统一响应且验证码被撤销。脚本只停止已验证名称的本地容器，在 `finally` 中仅恢复由本次脚本停止的容器，并等待健康状态恢复。
+
+- [ ] **Step 6: 运行完整回归**
 
 ```powershell
 ./mvnw.cmd test
@@ -616,15 +623,16 @@ git diff --check
 git status --short
 ```
 
-- [ ] **Step 6: 启动后运行在线验收**
+- [ ] **Step 7: 启动后运行在线验收**
 
 ```powershell
 & .\performance\apply-authentication-security-schema.ps1
-& .\performance\check-authentication-security.ps1 -BaseUrl 'http://127.0.0.1:8083'
+docker compose -f .\compose.local.yml up -d mailpit
+& .\performance\check-authentication-security.ps1 -BaseUrl 'http://127.0.0.1:8083' -MailpitUrl 'http://127.0.0.1:8025'
 & .\performance\check-observability.ps1 -GrafanaUser 'admin' -GrafanaPassword '<本地密码>'
 ```
 
-- [ ] **Step 7: 人工安全检查**
+- [ ] **Step 8: 人工安全检查**
 
 - 轮换历史中已出现的第三方 API 凭据；
 - 为部署环境生成独立的 JWT 与 HMAC 随机秘密；
@@ -632,7 +640,7 @@ git status --short
 - 浏览器检查 PC/移动注册、登录、忘记密码和改密；
 - Grafana 检查认证面板，Prometheus 检查告警规则加载。
 
-- [ ] **Step 8: 用户提交**
+- [ ] **Step 9: 用户提交**
 
 建议提交消息：`test: verify authentication security`
 

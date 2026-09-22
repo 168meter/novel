@@ -417,6 +417,18 @@ Controller 不直接访问 Redis、JavaMailSender、密码编码器或登录失�
 - 完整 Maven、前端脚本、配置契约和 `git diff --check` 通过；
 - 公网部署前执行 Redis、SMTP、数据库故障演练和登录限流压测。
 
+### 14.7 本地邮件验收基础设施
+
+本地自动验收使用 Mailpit 接收测试邮件，不向公网邮箱投递。Mailpit 的 SMTP 和 HTTP API
+只绑定 `127.0.0.1`，不进入生产 Compose 或生产 Profile。启动 `novel-front` 进行验收时，
+显式把 SMTP host/port 指向 Mailpit，并使用非敏感的本地发件地址。
+
+验收脚本为每次运行生成随机邮箱，通过 Mailpit HTTP API 读取本次邮件并提取六位验证码；
+不得从应用日志、Redis 验证码摘要或数据库反推出验证码。脚本只删除本次测试消息和本次创建的
+账号证据，不清空整个邮箱、Redis 或业务表。SMTP 故障演练可在明确启用破坏性演练参数后临时
+停止 Mailpit，并必须在 `finally` 中恢复由脚本停止的容器。真实邮箱发送仅作为人工可选检查，
+不属于默认自动验收。
+
 ## 15. 实施顺序
 
 1. 数据库迁移脚本、实体和 Mapper；
