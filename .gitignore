@@ -8,3 +8,8 @@
 performance/results/raw/
 *.jtl
 
+.env.prod
+deploy/runtime/
+deploy/backups/
+deploy/certbot/
+
