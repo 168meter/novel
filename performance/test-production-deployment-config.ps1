@@ -1017,4 +1017,30 @@ foreach ($contract in @(
 if ($restoreScript -match '(?i)DROP\s+(?:DATABASE|SCHEMA)') {
     throw 'Production MySQL restore must never drop a database automatically.'
 }
+
+$runtimeCheckerPath = Join-Path $root 'performance/check-production-deployment.sh'
+$runtimeBehaviorPath = Join-Path $root 'performance/test-production-runtime-checker.sh'
+foreach ($runtimePath in @($runtimeCheckerPath, $runtimeBehaviorPath)) {
+    if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
+        throw "Production Linux runtime verification artifact is missing: $([IO.Path]::GetFileName($runtimePath))"
+    }
+}
+$runtimeChecker = Get-Content -LiteralPath $runtimeCheckerPath -Raw
+foreach ($fragment in @(
+    'set -eu', '.env.prod', 'compose.prod.yml', '--allow-backup',
+    'docker compose', 'docker inspect', 'docker stats', 'service_healthy',
+    'ss -H -lnt', '/actuator/health', 'http://127.0.0.1:9090/api/v1/query',
+    'novel-book-visit-writer-v1', 'novel-reading-engagement-writer-v1',
+    'kafka-consumer-groups.sh', 'free -b', 'Swap:', 'df -Pk',
+    '10737418240', 'backup-mysql.sh', 'gzip -t', 'sha256sum',
+    'BACKUP_MAX_AGE_SECONDS'
+)) {
+    if (-not $runtimeChecker.Contains($fragment)) {
+        throw "Production Linux runtime checker contract is missing: $fragment"
+    }
+}
+if ($runtimeChecker -match '(?im)^\s*(?:cat|sed|awk|grep)\s+[^\r\n]*\.env\.prod' -or
+    $runtimeChecker -match '(?im)docker\s+compose[^\r\n]*\sconfig(?:\s|$)') {
+    throw 'Production Linux runtime checker must not print or render production secrets.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
