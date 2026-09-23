@@ -1,12 +1,48 @@
+server:
+  tomcat:
+    threads:
+      max: 48
+      min-spare: 4
+    max-connections: 512
+    accept-count: 100
+
 spring:
   config:
     import: classpath:application-common-prod.yml
   mail:
     username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  kafka:
+    bootstrap-servers: kafka:19092
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.LongSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
+        max.block.ms: 500
+        request.timeout.ms: 1000
+        delivery.timeout.ms: 3000
+    consumer:
+      enable-auto-commit: false
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      max-poll-records: 100
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.LongDeserializer
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: com.java2nb.novel.event
+        spring.json.value.default.type: com.java2nb.novel.event.BookVisitEvent
+        spring.json.use.type.headers: false
+    listener:
+      type: batch
+      ack-mode: batch
 
-  #静态文件路径配置
-  #thymeleaf模版路径配置
+  # 静态文件和 Thymeleaf 模板位于部署目录，不打进镜像内的 classpath。
   thymeleaf:
     prefix: file:${user.dir}/templates/${templates.name}/html/
     suffix: .html
@@ -16,30 +52,40 @@ spring:
 
 novel:
   auth:
-    trusted-proxy-addresses: []
+    trusted-proxy-addresses:
+      - 172.30.0.2
+  reading-engagement:
+    trusted-proxy-addresses:
+      - 172.30.0.2
+  kafka:
+    book-visit:
+      topic: novel-book-visit-v1
+      dlt-topic: novel-book-visit-dlt
+      group-id: novel-book-visit-writer-v1
+      max-poll-records: 100
+    reading-engagement:
+      topic: novel-reading-engagement-v1
+      dlt-topic: novel-reading-engagement-dlt
+      group-id: novel-reading-engagement-writer-v1
+      max-poll-records: 100
+      retry-interval: 5s
+      max-retries: 12
+      dedup-retention: 14d
+      cleanup-batch-size: 1000
+      cleanup-cron: "0 15 3 * * *"
 
-#模版配置
 templates:
   name: green
 
-
 pic:
   save:
-    type: 2 #图片保存方式, 1不保存，使用爬取的网络图片 ，2保存在自己的存储介质
-    storage: local #存储介质，local：本地，OSS：阿里云对象存储
-    path: /var/pic  #图片保存路径
+    type: 2
+    storage: local
+    path: /var/pic
 
-
-#线程池配置
 thread:
   pool:
-    #核心线程池数量
-    core-pool-size: 10
-    #最大线程池数量
-    maximum-pool-size: 20
-    #线程超时时间（秒）
+    core-pool-size: 2
+    maximum-pool-size: 6
     keep-alive-time: 10
-    #队列大小
-    queue-size: 1000
-
-
+    queue-size: 100

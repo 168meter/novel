@@ -1,7 +1,17 @@
 management:
   server:
+    port: 8084
     address: 0.0.0.0
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: never
   metrics:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+    tags:
+      application: novel-front
