@@ -145,13 +145,11 @@ MAIL_USERNAME=
 MAIL_PASSWORD=
 NOVEL_AI_ENABLED=false
 NOVEL_AI_API_KEY=
-ALIPAY_ENABLED=false
 ALIPAY_APP_ID=
 ALIPAY_MERCHANT_PRIVATE_KEY=
 ALIPAY_PUBLIC_KEY=
 ALIPAY_NOTIFY_URL=
 ALIPAY_RETURN_URL=
-OSS_ENABLED=false
 OSS_ENDPOINT=
 OSS_KEY_ID=
 OSS_KEY_SECRET=
@@ -201,8 +199,8 @@ $secretContracts = @{
         '${OSS_ENDPOINT:}', '${OSS_KEY_ID:}', '${OSS_KEY_SECRET:}',
         '${OSS_BUCKET_NAME:}', '${OSS_WEB_URL:}'
     )
-    'novel-admin/src/main/resources/application-dev.yml' = @('${MAIL_USERNAME:}', '${MAIL_PASSWORD:}')
-    'novel-admin/src/main/resources/application-prod.yml' = @('${MAIL_USERNAME}', '${MAIL_PASSWORD}')
+    'novel-admin/src/main/resources/application-dev.yml' = @('${NOVEL_ADMIN_DEMO_USERNAME:}', '${NOVEL_ADMIN_DEMO_PASSWORD:}')
+    'novel-admin/src/main/resources/application-prod.yml' = @('${NOVEL_ADMIN_DEMO_USERNAME}', '${NOVEL_ADMIN_DEMO_PASSWORD}')
 }
 foreach ($relativePath in $secretContracts.Keys) {
     $text = Get-Content -LiteralPath (Join-Path $root $relativePath) -Raw
@@ -216,7 +214,7 @@ foreach ($relativePath in $secretContracts.Keys) {
 
 - [ ] **Step 2: Run and verify RED**
 
-Expected: FAIL on the first literal Alipay, OSS, or admin mail property.
+Expected: FAIL on the first literal Alipay, OSS, or admin demo-login property.
 
 - [ ] **Step 3: Replace literals with environment references**
 
@@ -225,7 +223,6 @@ Use these exact property boundaries:
 ```yaml
 # application-alipay.yml
 alipay:
-  enabled: ${ALIPAY_ENABLED:false}
   app-id: ${ALIPAY_APP_ID:}
   merchant-private-key: ${ALIPAY_MERCHANT_PRIVATE_KEY:}
   public-key: ${ALIPAY_PUBLIC_KEY:}
@@ -240,7 +237,6 @@ alipay:
 # application-oss.yml
 novel:
   file:
-    enabled: ${OSS_ENABLED:false}
     endpoint: ${OSS_ENDPOINT:}
     key-id: ${OSS_KEY_ID:}
     key-secret: ${OSS_KEY_SECRET:}
@@ -249,13 +245,13 @@ novel:
     web-url: ${OSS_WEB_URL:}
 ```
 
-Replace admin mail usernames and passwords with the corresponding environment expressions;
+For every sensitive YAML key, require exactly one non-comment occurrence whose value is the specified environment expression; reject duplicate or literal credential keys without printing their values. Replace the admin demo-login username and password with semantically separate `NOVEL_ADMIN_DEMO_USERNAME` and `NOVEL_ADMIN_DEMO_PASSWORD` environment expressions;
 do not change unrelated user-owned database edits in those files.
 
 - [ ] **Step 4: Verify and document external rotation**
 
 Run the contract test and `git diff --check`. Record in `deploy/README.md` later that the
-old Alipay, OSS, and mail values must be revoked at their providers before deployment.
+old Alipay and OSS credentials must be revoked at their providers before deployment, and the tracked admin demo credentials must never be reused.
 
 - [ ] **Step 5: Commit**
 

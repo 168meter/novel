@@ -91,4 +91,98 @@ foreach ($ignoreEntry in $requiredIgnoreEntries) {
     }
 }
 
+$forbiddenExampleVariables = @('ALIPAY_ENABLED', 'OSS_ENABLED')
+foreach ($variableName in $forbiddenExampleVariables) {
+    if ($exampleLines | Where-Object { $_ -match ('^' + [regex]::Escape($variableName) + '=') }) {
+        throw "Unused production variable must not be documented: $variableName"
+    }
+}
+
+$credentialContracts = @(
+    @{
+        Path = 'novel-front/src/main/resources/application-alipay.yml'
+        ExpectedValues = [ordered]@{
+            'app-id' = '${ALIPAY_APP_ID:}'
+            'merchant-private-key' = '${ALIPAY_MERCHANT_PRIVATE_KEY:}'
+            'public-key' = '${ALIPAY_PUBLIC_KEY:}'
+            'notify-url' = '${ALIPAY_NOTIFY_URL:}'
+            'return-url' = '${ALIPAY_RETURN_URL:}'
+        }
+        ForbiddenKeys = @('enabled')
+    },
+    @{
+        Path = 'novel-front/src/main/resources/application-oss.yml'
+        ExpectedValues = [ordered]@{
+            'endpoint' = '${OSS_ENDPOINT:}'
+            'key-id' = '${OSS_KEY_ID:}'
+            'key-secret' = '${OSS_KEY_SECRET:}'
+            'bucket-name' = '${OSS_BUCKET_NAME:}'
+            'web-url' = '${OSS_WEB_URL:}'
+        }
+        ForbiddenKeys = @('enabled')
+    },
+    @{
+        Path = 'novel-admin/src/main/resources/application-dev.yml'
+        ExpectedValues = [ordered]@{
+            'username' = '${NOVEL_ADMIN_DEMO_USERNAME:}'
+            'password' = '${NOVEL_ADMIN_DEMO_PASSWORD:}'
+        }
+        ScopeBeforeKey = 'spring'
+    },
+    @{
+        Path = 'novel-admin/src/main/resources/application-prod.yml'
+        ExpectedValues = [ordered]@{
+            'username' = '${NOVEL_ADMIN_DEMO_USERNAME}'
+            'password' = '${NOVEL_ADMIN_DEMO_PASSWORD}'
+        }
+        ScopeBeforeKey = 'spring'
+    }
+)
+
+foreach ($contract in $credentialContracts) {
+    $configurationPath = Join-Path $root $contract.Path
+    if (-not (Test-Path -LiteralPath $configurationPath -PathType Leaf)) {
+        throw "Credential configuration is missing: $($contract.Path)"
+    }
+
+    $configurationLines = @(Get-Content -LiteralPath $configurationPath)
+    if ($contract.ScopeBeforeKey) {
+        $scopeBoundaryPattern = '^\s*' + [regex]::Escape($contract.ScopeBeforeKey) + '\s*:\s*$'
+        $scopeBoundary = -1
+        for ($lineIndex = 0; $lineIndex -lt $configurationLines.Count; $lineIndex++) {
+            if ($configurationLines[$lineIndex] -match $scopeBoundaryPattern) {
+                $scopeBoundary = $lineIndex
+                break
+            }
+        }
+        if ($scopeBoundary -lt 0) {
+            throw "Credential scope is missing: $($contract.Path) [$($contract.ScopeBeforeKey)]"
+        }
+        $configurationLines = @($configurationLines[0..($scopeBoundary - 1)])
+    }
+
+    foreach ($entry in $contract.ExpectedValues.GetEnumerator()) {
+        $keyPattern = '^\s*' + [regex]::Escape($entry.Key) + '\s*:\s*(?<value>.*)\s*$'
+        $matches = @($configurationLines | Where-Object {
+            $_ -notmatch '^\s*#' -and $_ -match $keyPattern
+        })
+        if ($matches.Count -ne 1) {
+            throw "Credential key must appear exactly once: $($contract.Path) [$($entry.Key)]"
+        }
+        $value = ([regex]::Match($matches[0], $keyPattern).Groups['value'].Value).Trim()
+        if ($value -cne $entry.Value) {
+            throw "Credential key is not environment-bound: $($contract.Path) [$($entry.Key)]"
+        }
+    }
+
+    foreach ($forbiddenKey in @($contract.ForbiddenKeys)) {
+        if ([string]::IsNullOrWhiteSpace($forbiddenKey)) { continue }
+        $forbiddenPattern = '^\s*' + [regex]::Escape($forbiddenKey) + '\s*:'
+        if ($configurationLines | Where-Object {
+            $_ -notmatch '^\s*#' -and $_ -match $forbiddenPattern
+        }) {
+            throw "Unsupported credential switch is present: $($contract.Path) [$forbiddenKey]"
+        }
+    }
+}
 Write-Host 'Production deployment configuration contracts passed.'
