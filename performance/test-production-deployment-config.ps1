@@ -981,4 +981,40 @@ if ($composeModel.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED -cne 'f
     -not [string]::IsNullOrEmpty([string]$composeModel.services.grafana.environment.GF_INSTALL_PLUGINS)) {
     throw 'Grafana must disable anonymous access and plugin installation.'
 }
+
+$backupScriptPath = Join-Path $root 'deploy/scripts/backup-mysql.sh'
+$restoreScriptPath = Join-Path $root 'deploy/scripts/restore-mysql.sh'
+$backupBehaviorPath = Join-Path $root 'performance/test-production-backup-operations.sh'
+foreach ($scriptPath in @($backupScriptPath, $restoreScriptPath, $backupBehaviorPath)) {
+    if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+        throw "Production database operation script is missing: $([IO.Path]::GetFileName($scriptPath))"
+    }
+}
+$backupScript = Get-Content -LiteralPath $backupScriptPath -Raw
+$restoreScript = Get-Content -LiteralPath $restoreScriptPath -Raw
+foreach ($contract in @(
+    @{ Name = 'backup'; Content = $backupScript; Required = @(
+        'set -eu', '.env.prod', 'compose.prod.yml', 'deploy/backups', 'umask 077',
+        'mysqldump', '--single-transaction', '--quick', '--routines', '--triggers', '--events',
+        'MYSQL_PWD', 'gzip -t', 'sha256sum', 'chmod 600', 'BACKUP_DIR_REAL'
+    ) },
+    @{ Name = 'restore'; Content = $restoreScript; Required = @(
+        'set -eu', '.env.prod', 'compose.prod.yml', 'deploy/backups', '--confirm-restore',
+        'MYSQL_PWD', 'gzip -t', 'sha256sum', 'mysqladmin ping', 'gzip -dc',
+        'docker compose', 'BACKUP_DIR_REAL'
+    ) }
+)) {
+    foreach ($fragment in $contract.Required) {
+        if (-not $contract.Content.Contains($fragment)) {
+            throw "Production MySQL $($contract.Name) safety contract is missing: $fragment"
+        }
+    }
+    $mysqlCommandLines = @($contract.Content -split "`r?`n" | Where-Object { $_ -match '\bmysql(?:admin|dump)?\b' })
+    if (($mysqlCommandLines -join "`n") -match '(?m)(?:^|\s)-p(?:assword)?(?:=|\s|\$|$)') {
+        throw "Production MySQL $($contract.Name) must not pass a password on the command line."
+    }
+}
+if ($restoreScript -match '(?i)DROP\s+(?:DATABASE|SCHEMA)') {
+    throw 'Production MySQL restore must never drop a database automatically.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
