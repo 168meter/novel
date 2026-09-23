@@ -1,0 +1,251 @@
+name: novel-plus-prod
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  nginx:
+    <<: *service-defaults
+    image: nginx:1.28.0-alpine
+    mem_limit: 64m
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      edge:
+        ipv4_address: 172.30.0.2
+    depends_on:
+      novel-front:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  novel-front:
+    <<: *service-defaults
+    image: novel-front:prod
+    build:
+      context: .
+      dockerfile: deploy/novel-front/Dockerfile
+    mem_limit: 896m
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      JAVA_TOOL_OPTIONS: -Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxMetaspaceSize=160m -XX:+ExitOnOutOfMemoryError
+      SPRING_PROFILES_ACTIVE: prod,monitoring
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-novel_plus}
+      MYSQL_USER: ${MYSQL_USER:-novel_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CACHE_MANAGER_PASSWORD: ${CACHE_MANAGER_PASSWORD:?CACHE_MANAGER_PASSWORD is required}
+      NOVEL_AUTH_HMAC_SECRET: ${NOVEL_AUTH_HMAC_SECRET:?NOVEL_AUTH_HMAC_SECRET is required}
+      NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET: ${NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET:?NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET is required}
+      SPRING_MAIL_HOST: ${MAIL_HOST:-smtp.163.com}
+      SPRING_MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:?MAIL_USERNAME is required}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:?MAIL_PASSWORD is required}
+      NOVEL_AI_ENABLED: ${NOVEL_AI_ENABLED:-false}
+      NOVEL_AI_API_KEY: ${NOVEL_AI_API_KEY:-}
+      SPRING_AI_OPENAI_IMAGE_ENABLED: ${NOVEL_AI_ENABLED:-false}
+      ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
+      ALIPAY_MERCHANT_PRIVATE_KEY: ${ALIPAY_MERCHANT_PRIVATE_KEY:-}
+      ALIPAY_PUBLIC_KEY: ${ALIPAY_PUBLIC_KEY:-}
+      ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-}
+      ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_KEY_ID: ${OSS_KEY_ID:-}
+      OSS_KEY_SECRET: ${OSS_KEY_SECRET:-}
+      OSS_BUCKET_NAME: ${OSS_BUCKET_NAME:-}
+      OSS_FILE_HOST: ${OSS_FILE_HOST:-pic}
+      OSS_WEB_URL: ${OSS_WEB_URL:-}
+    volumes:
+      - novel-front-pictures:/var/pic
+      - novel-front-books:/var/lib/novel-plus/books
+      - novel-front-logs:/app/logs
+    networks:
+      - edge
+      - backend
+      - monitoring
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8084/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  mysql:
+    <<: *service-defaults
+    image: mysql:8.0.46
+    mem_limit: 768m
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-novel_plus}
+      MYSQL_USER: ${MYSQL_USER:-novel_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+    volumes:
+      - novel-mysql-data:/var/lib/mysql
+      - ./deploy/mysql/conf.d/novel.cnf:/etc/mysql/conf.d/novel.cnf:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping --host=127.0.0.1 --user=root --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    <<: *service-defaults
+    image: redis:7.4.7-alpine
+    mem_limit: 256m
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: ["sh", "-ec", "exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - novel-redis-data:/data
+      - ./deploy/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  kafka:
+    <<: *service-defaults
+    image: apache/kafka:4.3.1
+    mem_limit: 640m
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      KAFKA_HEAP_OPTS: -Xms384m -Xmx384m
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_CLEANUP_POLICY: delete
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 134217728
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+    volumes:
+      - novel-kafka-data:/var/lib/kafka/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:19092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  prometheus:
+    <<: *service-defaults
+    image: prom/prometheus:v3.5.0
+    mem_limit: 384m
+    user: "65534:65534"
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - novel-prometheus-data:/prometheus
+    networks:
+      - monitoring
+    depends_on:
+      novel-front:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+
+  grafana:
+    <<: *service-defaults
+    image: grafana/grafana:12.1.0
+    mem_limit: 256m
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - novel-grafana-data:/var/lib/grafana
+    networks:
+      - monitoring
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  backend:
+    internal: true
+  monitoring:
+    internal: true
+
+volumes:
+  novel-front-pictures:
+  novel-front-books:
+  novel-front-logs:
+  novel-mysql-data:
+  novel-redis-data:
+  novel-kafka-data:
+  novel-prometheus-data:
+  novel-grafana-data:

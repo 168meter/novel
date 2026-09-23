@@ -769,4 +769,216 @@ if ($httpsDynamicLocation.Groups['body'].Value.Trim() -cne $dynamicBody.Trim()) 
 if ($httpsStaticLocation.Groups['body'].Value.Trim() -cne $staticBody.Trim()) {
     throw 'Nginx HTTPS static proxy boundary differs from the active HTTP boundary.'
 }
+
+$composePath = Join-Path $root 'compose.prod.yml'
+if (-not (Test-Path -LiteralPath $composePath -PathType Leaf)) {
+    throw 'compose.prod.yml is missing.'
+}
+
+$fixturePath = Join-Path $root '.env.prod.test'
+$composeErrorPath = Join-Path ([IO.Path]::GetTempPath()) ("novel-compose-{0}.stderr" -f [guid]::NewGuid().ToString('N'))
+try {
+    $fixtureLines = foreach ($line in $exampleLines) {
+        if ($line -notmatch '^(?<name>[A-Z0-9_]+)=(?<value>.*)$') { $line; continue }
+        $name = $Matches['name']
+        $value = $Matches['value']
+        if ($name -eq 'PUBLIC_DOMAIN') { "$name=novel.example.test"; continue }
+        if ([string]::IsNullOrEmpty($value)) { "$name=fixture-$($name.ToLowerInvariant())-0123456789abcdef"; continue }
+        $line
+    }
+    [IO.File]::WriteAllLines($fixturePath, [string[]]$fixtureLines, [Text.UTF8Encoding]::new($false))
+
+    $savedErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $composeJson = (& docker compose --env-file $fixturePath -f $composePath config --format json 2>$composeErrorPath) -join "`n"
+        $composeExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorPreference
+    }
+    if ($composeExitCode -ne 0) {
+        $composeError = if (Test-Path -LiteralPath $composeErrorPath) { Get-Content -LiteralPath $composeErrorPath -Raw } else { '' }
+        throw "Production Compose did not render successfully:`n$composeError"
+    }
+    try { $composeModel = $composeJson | ConvertFrom-Json } catch { throw 'Rendered production Compose is not valid JSON.' }
+}
+finally {
+    Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $composeErrorPath -Force -ErrorAction SilentlyContinue
+}
+
+$expectedServices = @('grafana', 'kafka', 'mysql', 'nginx', 'novel-front', 'prometheus', 'redis')
+$actualServices = @($composeModel.services.PSObject.Properties.Name | Sort-Object)
+if (($actualServices -join ',') -cne ($expectedServices -join ',')) {
+    throw "Production Compose services differ: $($actualServices -join ', ')"
+}
+
+$memoryLimits = @{
+    nginx = 64MB
+    'novel-front' = 896MB
+    mysql = 768MB
+    redis = 256MB
+    kafka = 640MB
+    prometheus = 384MB
+    grafana = 256MB
+}
+$expectedImages = @{
+    nginx = 'nginx:1.28.0-alpine'
+    'novel-front' = 'novel-front:prod'
+    mysql = 'mysql:8.0.46'
+    redis = 'redis:7.4.7-alpine'
+    kafka = 'apache/kafka:4.3.1'
+    prometheus = 'prom/prometheus:v3.5.0'
+    grafana = 'grafana/grafana:12.1.0'
+}
+function Get-OptionalProperty([object]$Object, [string]$Name) {
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+foreach ($serviceName in $expectedServices) {
+    $service = $composeModel.services.$serviceName
+    if ($service.restart -cne 'unless-stopped') { throw "$serviceName must restart unless-stopped." }
+    if ($null -eq $service.healthcheck) { throw "$serviceName must define a health check." }
+    if ([int64]$service.mem_limit -ne [int64]$memoryLimits[$serviceName]) { throw "$serviceName memory limit is incorrect." }
+    if ($service.logging.driver -cne 'json-file' -or
+        $service.logging.options.'max-size' -cne '10m' -or
+        [string]$service.logging.options.'max-file' -cne '3') {
+        throw "$serviceName must use bounded Docker JSON logging."
+    }
+    if ($service.image -cne $expectedImages[$serviceName] -or $service.image -match '(?i):latest$') {
+        throw "$serviceName image identity is not pinned."
+    }
+    if ((Get-OptionalProperty $service 'privileged') -eq $true -or
+        (Get-OptionalProperty $service 'network_mode') -eq 'host') {
+        throw "$serviceName uses an unsafe container privilege or network mode."
+    }
+    foreach ($volume in @((Get-OptionalProperty $service 'volumes'))) {
+        if ([string]$volume.source -eq '/var/run/docker.sock' -or [string]$volume.target -eq '/var/run/docker.sock') {
+            throw "$serviceName must not mount the Docker socket."
+        }
+    }
+}
+if ($null -eq $composeModel.services.'novel-front'.build -or
+    $composeModel.services.'novel-front'.build.dockerfile -notmatch 'deploy[/\\]novel-front[/\\]Dockerfile$') {
+    throw 'novel-front must build from the hardened production Dockerfile.'
+}
+
+function Assert-SinglePort([string]$ServiceName, [int]$Target, [int]$Published, [string]$HostIp) {
+    $portValue = Get-OptionalProperty $composeModel.services.$ServiceName 'ports'
+    $ports = @($portValue)
+    if ($ports.Count -ne 1 -or [int]$ports[0].target -ne $Target -or [int]$ports[0].published -ne $Published) {
+        throw "$ServiceName port publication is incorrect."
+    }
+    $actualHostIp = [string](Get-OptionalProperty $ports[0] 'host_ip')
+    if ($HostIp -and $actualHostIp -cne $HostIp) {
+        throw "$ServiceName must bind only to $HostIp."
+    }
+    if (-not $HostIp -and $actualHostIp -in @('127.0.0.1', '::1')) {
+        throw "$ServiceName must expose its public port, not bind it to loopback."
+    }
+}
+Assert-SinglePort nginx 80 80 ''
+Assert-SinglePort prometheus 9090 9090 '127.0.0.1'
+Assert-SinglePort grafana 3000 3000 '127.0.0.1'
+foreach ($serviceName in @('novel-front', 'mysql', 'redis', 'kafka')) {
+    $publishedPorts = Get-OptionalProperty $composeModel.services.$serviceName 'ports'
+    if ($null -ne $publishedPorts -and @($publishedPorts).Count -ne 0) { throw "$serviceName must not publish host ports." }
+}
+
+foreach ($networkName in @('backend', 'monitoring')) {
+    if ($composeModel.networks.$networkName.internal -ne $true) { throw "$networkName must be an internal Docker network." }
+}
+if ($composeModel.services.nginx.networks.edge.ipv4_address -cne '172.30.0.2') {
+    throw 'Nginx must use the fixed trusted edge address 172.30.0.2.'
+}
+$edgeSubnets = @($composeModel.networks.edge.ipam.config | ForEach-Object { $_.subnet })
+if ($edgeSubnets -notcontains '172.30.0.0/24') { throw 'The edge network subnet must be 172.30.0.0/24.' }
+
+$expectedServiceNetworks = @{
+    nginx = @('edge')
+    'novel-front' = @('backend', 'edge', 'monitoring')
+    mysql = @('backend')
+    redis = @('backend')
+    kafka = @('backend')
+    prometheus = @('monitoring')
+    grafana = @('monitoring')
+}
+foreach ($serviceName in $expectedServices) {
+    $actualNetworks = @($composeModel.services.$serviceName.networks.PSObject.Properties.Name | Sort-Object)
+    $expectedNetworks = @($expectedServiceNetworks[$serviceName] | Sort-Object)
+    if (($actualNetworks -join ',') -cne ($expectedNetworks -join ',')) {
+        throw "$serviceName Docker network membership is incorrect."
+    }
+}
+
+$expectedHealthyDependencies = @{
+    nginx = @('novel-front')
+    'novel-front' = @('kafka', 'mysql', 'redis')
+    mysql = @()
+    redis = @()
+    kafka = @()
+    prometheus = @('novel-front')
+    grafana = @('prometheus')
+}
+foreach ($serviceName in $expectedServices) {
+    $dependencyModel = Get-OptionalProperty $composeModel.services.$serviceName 'depends_on'
+    $actualDependencies = if ($null -eq $dependencyModel) { @() } else { @($dependencyModel.PSObject.Properties.Name | Sort-Object) }
+    $expectedDependencies = @($expectedHealthyDependencies[$serviceName] | Sort-Object)
+    if (($actualDependencies -join ',') -cne ($expectedDependencies -join ',')) {
+        throw "$serviceName health dependency graph is incorrect."
+    }
+    foreach ($dependencyName in $actualDependencies) {
+        if ($dependencyModel.$dependencyName.condition -cne 'service_healthy') {
+            throw "$serviceName must wait for healthy dependency $dependencyName."
+        }
+    }
+}
+
+$frontEnvironment = $composeModel.services.'novel-front'.environment
+if ($frontEnvironment.JAVA_TOOL_OPTIONS -cne '-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxMetaspaceSize=160m -XX:+ExitOnOutOfMemoryError' -or
+    $frontEnvironment.SPRING_PROFILES_ACTIVE -cne 'prod,monitoring') {
+    throw 'novel-front JVM or Spring profile settings are incorrect.'
+}
+$requiredFrontEnvironment = @(
+    'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'REDIS_PASSWORD',
+    'JWT_SECRET', 'CACHE_MANAGER_PASSWORD', 'NOVEL_AUTH_HMAC_SECRET',
+    'NOVEL_READING_ENGAGEMENT_IP_HMAC_SECRET', 'SPRING_MAIL_HOST',
+    'SPRING_MAIL_PORT', 'MAIL_USERNAME', 'MAIL_PASSWORD'
+)
+foreach ($variableName in $requiredFrontEnvironment) {
+    $value = Get-OptionalProperty $frontEnvironment $variableName
+    if ([string]::IsNullOrWhiteSpace([string]$value)) {
+        throw "novel-front required runtime variable is missing: $variableName"
+    }
+}
+
+$mysqlVolumes = @($composeModel.services.mysql.volumes)
+if (-not ($mysqlVolumes | Where-Object { $_.target -eq '/etc/mysql/conf.d/novel.cnf' -and $_.read_only -eq $true })) {
+    throw 'MySQL must mount the bounded production configuration read-only.'
+}
+$redisCommand = @($composeModel.services.redis.command) -join ' '
+if (-not $redisCommand.Contains('/usr/local/etc/redis/redis.conf') -or
+    -not $redisCommand.Contains('--requirepass')) {
+    throw 'Redis must load its bounded config and runtime password.'
+}
+$kafkaEnvironment = $composeModel.services.kafka.environment
+if ($kafkaEnvironment.KAFKA_HEAP_OPTS -cne '-Xms384m -Xmx384m' -or
+    [string]$kafkaEnvironment.KAFKA_NODE_ID -cne '1' -or
+    $kafkaEnvironment.KAFKA_PROCESS_ROLES -cne 'broker,controller' -or
+    $kafkaEnvironment.KAFKA_LISTENERS -cne 'CONTROLLER://:29093,PLAINTEXT://:19092' -or
+    $kafkaEnvironment.KAFKA_ADVERTISED_LISTENERS -cne 'PLAINTEXT://kafka:19092' -or
+    [string]$kafkaEnvironment.KAFKA_LOG_RETENTION_HOURS -cne '24' -or
+    [string]$kafkaEnvironment.KAFKA_LOG_RETENTION_BYTES -cne '134217728') {
+    throw 'Kafka single-node heap, listener, or retention settings are incorrect.'
+}
+$prometheusCommand = @($composeModel.services.prometheus.command) -join "`n"
+foreach ($argument in @('--storage.tsdb.retention.time=7d', '--storage.tsdb.retention.size=1GB')) {
+    if (-not $prometheusCommand.Contains($argument)) { throw "Prometheus retention argument is missing: $argument" }
+}
+if ($composeModel.services.grafana.environment.GF_AUTH_ANONYMOUS_ENABLED -cne 'false' -or
+    -not [string]::IsNullOrEmpty([string]$composeModel.services.grafana.environment.GF_INSTALL_PLUGINS)) {
+    throw 'Grafana must disable anonymous access and plugin installation.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
