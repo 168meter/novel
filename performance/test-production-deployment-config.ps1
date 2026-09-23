@@ -659,7 +659,7 @@ foreach ($fragment in @(
     'server_name _;',
     'location = /actuator { return 404; }',
     'location ^~ /actuator/ { return 404; }',
-    'location ~* \.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$ {',
+    'location ~* "^/(?:css|images|javascript|js|layui|mobile)/[^;]*\.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$" {',
     'limit_req zone=public_api burst=40 nodelay;',
     'limit_conn per_ip 30;',
     'proxy_pass http://novel-front:8083;',
@@ -690,24 +690,24 @@ if (-not $dynamicLocation.Success) {
 }
 $dynamicBody = $dynamicLocation.Groups['body'].Value
 foreach ($pattern in @(
-    '(?m)^\s*limit_req\s+',
-    '(?m)^\s*limit_conn\s+',
-    '(?m)^\s*proxy_pass\s+',
-    '(?m)^\s*proxy_set_header\s+Host\s+',
-    '(?m)^\s*proxy_set_header\s+X-Real-IP\s+',
-    '(?m)^\s*proxy_set_header\s+X-Forwarded-Host\s+',
-    '(?m)^\s*proxy_set_header\s+X-Forwarded-Proto\s+',
-    '(?m)^\s*proxy_set_header\s+X-Forwarded-For\s+',
-    '(?m)^\s*proxy_connect_timeout\s+',
-    '(?m)^\s*proxy_send_timeout\s+',
-    '(?m)^\s*proxy_read_timeout\s+',
-    '(?m)^\s*proxy_cache\s+'
+    '(?m)^\s*limit_req\s+zone=public_api\s+burst=40\s+nodelay;',
+    '(?m)^\s*limit_conn\s+per_ip\s+30;',
+    '(?m)^\s*proxy_pass\s+http://novel-front:8083;',
+    '(?m)^\s*proxy_set_header\s+Host\s+\$host;',
+    '(?m)^\s*proxy_set_header\s+X-Real-IP\s+\$remote_addr;',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-Host\s+\$host;',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-Proto\s+\$scheme;',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-For\s+\$remote_addr;',
+    '(?m)^\s*proxy_connect_timeout\s+3s;',
+    '(?m)^\s*proxy_send_timeout\s+30s;',
+    '(?m)^\s*proxy_read_timeout\s+30s;',
+    '(?m)^\s*proxy_cache\s+off;'
 )) {
     if ([regex]::Matches($dynamicBody, $pattern).Count -ne 1) {
         throw "Production Nginx dynamic directive must appear exactly once: $pattern"
     }
 }
-$staticMarker = 'location ~* \.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$ {'
+$staticMarker = 'location ~* "^/(?:css|images|javascript|js|layui|mobile)/[^;]*\.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$" {'
 $staticLocation = [regex]::Match(
     $nginxFront,
     '(?ms)^\s*' + [regex]::Escape($staticMarker) + '\s*(?<body>.*?)^\s*\}'
@@ -745,6 +745,12 @@ foreach ($fragment in @(
     if (-not $httpsExample.Contains($fragment)) {
         throw "Nginx HTTPS activation example is incomplete: $fragment"
     }
+}
+$httpsActuatorLocations = @($httpsExample -split "`n" | Where-Object { $_ -match '^\s*location\s+.*actuator' })
+if ($httpsActuatorLocations.Count -ne 2 -or
+    -not $httpsExample.Contains('location = /actuator { return 404; }') -or
+    -not $httpsExample.Contains('location ^~ /actuator/ { return 404; }')) {
+    throw 'Nginx HTTPS activation example must preserve both Actuator denial locations.'
 }
 $httpsDynamicLocation = [regex]::Match(
     $httpsExample,
