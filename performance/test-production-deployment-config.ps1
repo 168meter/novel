@@ -399,4 +399,144 @@ foreach ($entry in @(
         throw "Docker build exclusion is missing: $entry"
     }
 }
+
+$dataServiceContracts = @(
+    'deploy/mysql/conf.d/novel.cnf',
+    'deploy/redis/redis.conf',
+    'deploy/scripts/init-database.sh'
+)
+foreach ($relativePath in $dataServiceContracts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $relativePath) -PathType Leaf)) {
+        throw "Production data service file is missing: $relativePath"
+    }
+}
+
+$mysqlSection = ''
+$mysqlDirectives = @()
+foreach ($rawLine in Get-Content -LiteralPath (Join-Path $root 'deploy/mysql/conf.d/novel.cnf')) {
+    $line = $rawLine.Trim()
+    if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^[#;]') { continue }
+    if ($line -match '^\[(?<section>[^]]+)\]$') {
+        $mysqlSection = $Matches['section'].ToLowerInvariant()
+        continue
+    }
+    if ($mysqlSection -ne 'mysqld') { continue }
+    $parts = @($line -split '\s*=\s*', 2)
+    $mysqlDirectives += [pscustomobject]@{
+        Key = $parts[0].ToLowerInvariant().Replace('-', '_')
+        Value = if ($parts.Count -eq 2) { $parts[1].Trim() } else { '' }
+    }
+}
+$expectedMysql = [ordered]@{
+    'character_set_server' = 'utf8mb4'
+    'collation_server' = 'utf8mb4_unicode_ci'
+    'innodb_buffer_pool_size' = '384M'
+    'innodb_buffer_pool_instances' = '1'
+    'max_connections' = '60'
+    'table_open_cache' = '400'
+    'table_definition_cache' = '400'
+    'tmp_table_size' = '32M'
+    'max_heap_table_size' = '32M'
+    'temptable_max_ram' = '64M'
+    'skip_log_bin' = ''
+    'performance_schema' = 'OFF'
+}
+if ($mysqlDirectives.Key -contains 'log_bin') {
+    throw 'Production MySQL configuration must not enable the binary log.'
+}
+foreach ($entry in $expectedMysql.GetEnumerator()) {
+    $matches = @($mysqlDirectives | Where-Object { $_.Key -eq $entry.Key })
+    if ($matches.Count -ne 1 -or $matches[0].Value -cne $entry.Value) {
+        throw "MySQL directive must appear exactly once with the expected value: $($entry.Key)=$($entry.Value)"
+    }
+}
+
+$redisDirectives = @()
+foreach ($rawLine in Get-Content -LiteralPath (Join-Path $root 'deploy/redis/redis.conf')) {
+    $line = $rawLine.Trim()
+    if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^#') { continue }
+    $parts = @($line -split '\s+', 2)
+    $redisDirectives += [pscustomobject]@{
+        Key = $parts[0].ToLowerInvariant()
+        Value = if ($parts.Count -eq 2) { $parts[1].Trim() } else { '' }
+    }
+}
+$expectedRedis = @(
+    @('bind', '0.0.0.0'),
+    @('protected-mode', 'yes'),
+    @('port', '6379'),
+    @('appendonly', 'yes'),
+    @('appendfsync', 'everysec'),
+    @('auto-aof-rewrite-percentage', '100'),
+    @('auto-aof-rewrite-min-size', '64mb'),
+    @('maxmemory', '176mb'),
+    @('maxmemory-policy', 'allkeys-lfu'),
+    @('save', '900 1'),
+    @('save', '300 10')
+)
+foreach ($expected in $expectedRedis) {
+    $matches = @($redisDirectives | Where-Object {
+        $_.Key -eq $expected[0] -and $_.Value -ceq $expected[1]
+    })
+    if ($matches.Count -ne 1) {
+        throw "Redis directive must appear exactly once with the expected value: $($expected[0]) $($expected[1])"
+    }
+}
+foreach ($uniqueKey in @($expectedRedis | ForEach-Object { $_[0] } | Where-Object { $_ -ne 'save' } | Select-Object -Unique)) {
+    if (@($redisDirectives | Where-Object { $_.Key -eq $uniqueKey }).Count -ne 1) {
+        throw "Redis directive must not be duplicated: $uniqueKey"
+    }
+}
+if (@($redisDirectives | Where-Object { $_.Key -eq 'save' }).Count -ne 2) {
+    throw 'Redis save directives must be exactly the two approved schedules.'
+}
+if ($redisDirectives.Key -contains 'requirepass' -or $redisDirectives.Key -contains 'masterauth') {
+    throw 'Tracked Redis configuration must not contain a password.'
+}
+
+$databaseInit = Get-Content -LiteralPath (Join-Path $root 'deploy/scripts/init-database.sh') -Raw
+foreach ($fragment in @(
+    'set -eu',
+    '--migrate-only',
+    '.env.prod',
+    'compose.prod.yml',
+    'docker compose --env-file',
+    '-f "$COMPOSE_FILE"',
+    'unzip -p "$SEED_ARCHIVE" novel_plus_data.sql',
+    'doc/sql/20260911_reading_daily_aggregation.sql',
+    'doc/sql/20260917_authentication_security.sql',
+    'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"',
+    'query_output="$(mysql_query "$1")" || return $?',
+    'validate_count table_count "$table_count"',
+    'validate_count base_table_count "$base_table_count"',
+    'EXPECTED_BASE_TABLE_COUNT=50',
+    'base_seed_v1',
+    'mark_seed_state loading',
+    'mark_seed_state ready',
+    'unzip -t "$SEED_ARCHIVE"',
+    'mkfifo "$IMPORT_FIFO"',
+    'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()',
+    'Database does not contain the complete expected base schema.',
+    'Database is not empty; rerun with --migrate-only.'
+)) {
+    if (-not $databaseInit.Contains($fragment)) {
+        throw "Safe database initialization property is missing: $fragment"
+    }
+}
+$forbiddenPasswordArgumentPattern = '(?m)(?:^|\s)(?:-p\S+|--password(?:=\S+|\s+\S+))'
+foreach ($unsafeFixture in @(
+    'mysql -psecret',
+    'mysql --password=secret',
+    'mysql --password secret'
+)) {
+    if ($unsafeFixture -notmatch $forbiddenPasswordArgumentPattern) {
+        throw "Password argument detector failed its unsafe fixture: $unsafeFixture"
+    }
+}
+if ('MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root' -match $forbiddenPasswordArgumentPattern) {
+    throw 'Password argument detector rejects the approved MYSQL_PWD pattern.'
+}
+if ($databaseInit -match $forbiddenPasswordArgumentPattern) {
+    throw 'Database initialization must not put a password on the command line.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
