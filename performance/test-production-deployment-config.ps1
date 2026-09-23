@@ -539,4 +539,62 @@ if ('MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root' -match $forbiddenPasswo
 if ($databaseInit -match $forbiddenPasswordArgumentPattern) {
     throw 'Database initialization must not put a password on the command line.'
 }
+
+$messagingContracts = @(
+    'deploy/scripts/init-kafka-topics.sh',
+    'deploy/prometheus/prometheus.yml'
+)
+foreach ($relativePath in $messagingContracts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $relativePath) -PathType Leaf)) {
+        throw "Production messaging or monitoring file is missing: $relativePath"
+    }
+}
+
+$kafkaInit = Get-Content -LiteralPath (Join-Path $root 'deploy/scripts/init-kafka-topics.sh') -Raw
+foreach ($fragment in @(
+    'set -eu',
+    '.env.prod',
+    'compose.prod.yml',
+    "BOOTSTRAP_SERVER='localhost:19092'",
+    'kafka-broker-api-versions.sh',
+    'kafka-topics.sh',
+    '--create',
+    '--if-not-exists',
+    '--partitions 3',
+    '--replication-factor 1',
+    'kafka-configs.sh',
+    'retention.ms=86400000,retention.bytes=134217728',
+    'retention.ms=604800000,retention.bytes=268435456',
+    'novel-book-visit-v1',
+    'novel-book-visit-dlt',
+    'novel-reading-engagement-v1',
+    'novel-reading-engagement-dlt',
+    'topic_partitions=',
+    'topic_replication_factor=',
+    '[ "$topic_partitions" = ''3'' ]',
+    '[ "$topic_replication_factor" = ''1'' ]',
+    'grep -F "$retention_ms sensitive=false"',
+    'grep -F "$retention_bytes sensitive=false"'
+)) {
+    if (-not $kafkaInit.Contains($fragment)) {
+        throw "Kafka topic retention property is missing: $fragment"
+    }
+}
+
+$productionPrometheus = Get-Content -LiteralPath (Join-Path $root 'deploy/prometheus/prometheus.yml') -Raw
+foreach ($fragment in @(
+    'scrape_interval: 30s',
+    'evaluation_interval: 30s',
+    'job_name: novel-front',
+    'metrics_path: /actuator/prometheus',
+    'novel-front:8084',
+    '/etc/prometheus/rules/*.yml'
+)) {
+    if (-not $productionPrometheus.Contains($fragment)) {
+        throw "Production Prometheus property is missing: $fragment"
+    }
+}
+if ($productionPrometheus.Contains('host.docker.internal')) {
+    throw 'Production Prometheus must use Docker DNS, not host.docker.internal.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
