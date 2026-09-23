@@ -185,4 +185,122 @@ foreach ($contract in $credentialContracts) {
         }
     }
 }
+function Assert-FileContainsAll {
+    param(
+        [Parameter(Mandatory = $true)][string] $RelativePath,
+        [Parameter(Mandatory = $true)][string[]] $RequiredFragments,
+        [Parameter(Mandatory = $true)][string] $ContractName
+    )
+    $fullPath = Join-Path $root $RelativePath
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        throw "$ContractName configuration is missing: $RelativePath"
+    }
+    $fileText = Get-Content -LiteralPath $fullPath -Raw
+    foreach ($fragment in $RequiredFragments) {
+        if (-not $fileText.Contains($fragment)) {
+            throw "$ContractName property is missing: $RelativePath [$fragment]"
+        }
+    }
+}
+
+Assert-FileContainsAll `
+    -RelativePath 'novel-front/src/main/resources/application-prod.yml' `
+    -ContractName 'Bounded front production' `
+    -RequiredFragments @(
+        'bootstrap-servers: kafka:19092',
+        'max: 48',
+        'min-spare: 4',
+        'max-connections: 512',
+        'accept-count: 100',
+        'max-file-size: 10MB',
+        'max-request-size: 10MB',
+        'core-pool-size: 2',
+        'maximum-pool-size: 6',
+        'keep-alive-time: 10',
+        'queue-size: 100',
+        'max-poll-records: 100',
+        '- 172.30.0.2',
+        'cleanup-batch-size: 1000'
+    )
+
+$frontProdText = (Get-Content -LiteralPath (Join-Path $root 'novel-front/src/main/resources/application-prod.yml') -Raw) -replace "`r`n?", "`n"
+$requiredFrontBlocks = @(
+    "  auth:`n    trusted-proxy-addresses:`n      - 172.30.0.2`n  reading-engagement:`n    trusted-proxy-addresses:`n      - 172.30.0.2`n  kafka:`n",
+    "    producer:`n      acks: all`n      key-serializer: org.apache.kafka.common.serialization.LongSerializer`n      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer`n      properties:`n        enable.idempotence: true`n        max.block.ms: 500`n        request.timeout.ms: 1000`n        delivery.timeout.ms: 3000`n",
+    "    consumer:`n      enable-auto-commit: false`n      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer`n      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer`n      max-poll-records: 100`n",
+    "    listener:`n      type: batch`n      ack-mode: batch`n",
+    "    book-visit:`n      topic: novel-book-visit-v1`n      dlt-topic: novel-book-visit-dlt`n      group-id: novel-book-visit-writer-v1`n      max-poll-records: 100`n    reading-engagement:`n      topic: novel-reading-engagement-v1`n      dlt-topic: novel-reading-engagement-dlt`n      group-id: novel-reading-engagement-writer-v1`n      max-poll-records: 100`n      retry-interval: 5s`n      max-retries: 12`n      dedup-retention: 14d`n      cleanup-batch-size: 1000`n      cleanup-cron: `"0 15 3 * * *`"`n"
+)
+foreach ($requiredBlock in $requiredFrontBlocks) {
+    if (-not $frontProdText.Contains($requiredBlock)) {
+        throw 'Structured production front configuration block is missing or contains unexpected values.'
+    }
+}
+Assert-FileContainsAll `
+    -RelativePath 'novel-common/src/main/resources/application-common-prod.yml' `
+    -ContractName 'Production common' `
+    -RequiredFragments @(
+        'host: redis',
+        'port: 6379',
+        'password: ${REDIS_PASSWORD}',
+        'timeout: 3000ms',
+        'root: info',
+        'com.java2nb: info'
+    )
+
+Assert-FileContainsAll `
+    -RelativePath 'novel-front/src/main/resources/application-monitoring.yml' `
+    -ContractName 'Internal management' `
+    -RequiredFragments @(
+        'port: 8084',
+        'address: 0.0.0.0',
+        'include: health,prometheus,metrics',
+        'show-details: never',
+        'http.server.requests: true',
+        'application: novel-front'
+    )
+
+$logbackPath = Join-Path $root 'novel-front/src/main/resources/logback-boot.xml'
+$logbackText = Get-Content -LiteralPath $logbackPath -Raw
+foreach ($fragment in @(
+    '<springProfile name="prod">',
+    '<springProfile name="!prod">',
+    '<maxHistory>7</maxHistory>',
+    '<maxFileSize>10MB</maxFileSize>',
+    '<totalSizeCap>256MB</totalSizeCap>',
+    '<root level="INFO">',
+    '<logger name="com.java2nb" level="INFO"'
+)) {
+    if (-not $logbackText.Contains($fragment)) {
+        throw "Bounded production logging property is missing: $fragment"
+    }
+}
+$prodProfileMatch = [regex]::Match(
+    $logbackText,
+    '(?s)<springProfile name="prod">(?<body>.*?)</springProfile>'
+)
+if (-not $prodProfileMatch.Success) {
+    throw 'Production Logback profile is missing.'
+}
+$nonProdProfileMatch = [regex]::Match(
+    $logbackText,
+    '(?s)<springProfile name="!prod">(?<body>.*?)</springProfile>'
+)
+if (-not $nonProdProfileMatch.Success) {
+    throw 'Non-production Logback profile is missing.'
+}
+$nonProdBody = $nonProdProfileMatch.Groups['body'].Value
+foreach ($fragment in @(
+    '<maxHistory>30</maxHistory>',
+    '<maxFileSize>10MB</maxFileSize>',
+    '<totalSizeCap>1GB</totalSizeCap>',
+    '<logger name="com.java2nb" level="DEBUG"'
+)) {
+    if (-not $nonProdBody.Contains($fragment)) {
+        throw "Non-production Logback behavior changed: $fragment"
+    }
+}
+if ($prodProfileMatch.Groups['body'].Value -match '(?i)level="DEBUG"') {
+    throw 'Production Logback profile must not enable DEBUG logging.'
+}
 Write-Host 'Production deployment configuration contracts passed.'

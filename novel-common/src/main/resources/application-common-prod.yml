@@ -5,36 +5,23 @@ spring:
     allow-bean-definition-overriding: true
   data:
     redis:
-      #Redis服务器IP
-      host: 127.0.0.1
-      #Redis服务器连接端口
+      host: redis
       port: 6379
-      #Redis服务器连接密码
-      password: test123456
-      #连接超时时间（毫秒）
-      timeout: 10000
+      password: ${REDIS_PASSWORD}
+      timeout: 3000ms
 
 logging:
   level:
-    root: error
-    com.java2nb: error
-
-
+    root: info
+    com.java2nb: info
 
 content:
   save:
-    storage: db #存储介质，db：数据库，file：txt文本
-    path: /Users/xiongxiaoyang/books  #txt小说文本保存路径
+    storage: db
+    path: /var/lib/novel-plus/books
 
-# HTTP 代理配置
 http:
   proxy:
-    # 是否开启 HTTP 代理，true-开启，false-不开启
     enabled: false
-    # 代理 IP
-    ip: 40.83.102.86
-    # 代理端口号
+    ip: 127.0.0.1
     port: 80
-
-
-
