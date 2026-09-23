@@ -1,3 +1,4 @@
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -9,6 +10,7 @@ if (-not (Test-Path -LiteralPath $environmentExample -PathType Leaf)) {
 }
 
 $environmentContent = Get-Content -LiteralPath $environmentExample -Raw
+$exampleLines = @($environmentContent -split "`r?`n")
 $requiredVariables = @(
     'MYSQL_ROOT_PASSWORD',
     'MYSQL_PASSWORD',
@@ -146,7 +148,7 @@ foreach ($contract in $credentialContracts) {
     }
 
     $configurationLines = @(Get-Content -LiteralPath $configurationPath)
-    if ($contract.ScopeBeforeKey) {
+    if ($contract.ContainsKey('ScopeBeforeKey') -and $contract.ScopeBeforeKey) {
         $scopeBoundaryPattern = '^\s*' + [regex]::Escape($contract.ScopeBeforeKey) + '\s*:\s*$'
         $scopeBoundary = -1
         for ($lineIndex = 0; $lineIndex -lt $configurationLines.Count; $lineIndex++) {
@@ -175,7 +177,8 @@ foreach ($contract in $credentialContracts) {
         }
     }
 
-    foreach ($forbiddenKey in @($contract.ForbiddenKeys)) {
+    $forbiddenKeys = if ($contract.ContainsKey('ForbiddenKeys')) { @($contract.ForbiddenKeys) } else { @() }
+    foreach ($forbiddenKey in $forbiddenKeys) {
         if ([string]::IsNullOrWhiteSpace($forbiddenKey)) { continue }
         $forbiddenPattern = '^\s*' + [regex]::Escape($forbiddenKey) + '\s*:'
         if ($configurationLines | Where-Object {
@@ -302,5 +305,98 @@ foreach ($fragment in @(
 }
 if ($prodProfileMatch.Groups['body'].Value -match '(?i)level="DEBUG"') {
     throw 'Production Logback profile must not enable DEBUG logging.'
+}
+$imageContracts = @(
+    'deploy/novel-front/Dockerfile',
+    'deploy/novel-front/entrypoint.sh',
+    'deploy/shardingsphere/shardingsphere-jdbc.yml.template',
+    '.dockerignore'
+)
+foreach ($relativePath in $imageContracts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $relativePath) -PathType Leaf)) {
+        throw "Production front image file is missing: $relativePath"
+    }
+}
+
+$dockerfileText = Get-Content -LiteralPath (Join-Path $root 'deploy/novel-front/Dockerfile') -Raw
+foreach ($fragment in @(
+    'FROM maven:3.9.11-eclipse-temurin-21-alpine AS build',
+    'FROM eclipse-temurin:21.0.8_9-jre-alpine',
+    'COPY novel-admin/pom.xml novel-admin/pom.xml',
+    'COPY novel-crawl/pom.xml novel-crawl/pom.xml',
+    'COPY novel-common/src novel-common/src',
+    'COPY novel-front/src novel-front/src',
+    'RUN apk add --no-cache gettext wget',
+    'USER 10001:10001',
+    'HEALTHCHECK --interval=20s --timeout=5s --start-period=60s --retries=5',
+    '! -name ''*-sources.jar''',
+    '! -name ''*-javadoc.jar''',
+    'test "$jar_count" -eq 1',
+    'ENTRYPOINT ["/app/entrypoint.sh"]'
+)) {
+    if (-not $dockerfileText.Contains($fragment)) {
+        throw "Hardened front Dockerfile property is missing: $fragment"
+    }
+}
+if ($dockerfileText -match '(?im)^\s*ARG\s+.*(PASSWORD|SECRET|TOKEN|KEY)') {
+    throw 'Production front Dockerfile must not accept secret build arguments.'
+}
+
+$entrypointText = Get-Content -LiteralPath (Join-Path $root 'deploy/novel-front/entrypoint.sh') -Raw
+foreach ($fragment in @(
+    'set -eu',
+    'umask 077',
+    ': "${MYSQL_DATABASE:?MYSQL_DATABASE is required}"',
+    ': "${MYSQL_USER:?MYSQL_USER is required}"',
+    ': "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"',
+    'yaml_quote()',
+    'MYSQL_USER_YAML="$(yaml_quote "$MYSQL_USER")"',
+    'MYSQL_PASSWORD_YAML="$(yaml_quote "$MYSQL_PASSWORD")"',
+    'envsubst ''${MYSQL_DATABASE} ${MYSQL_USER_YAML} ${MYSQL_PASSWORD_YAML}''',
+    'chmod 600 /app/runtime/shardingsphere-jdbc.yml',
+    'jdbc:shardingsphere:absolutepath:/app/runtime/shardingsphere-jdbc.yml',
+    'exec java -jar /app/novel-front.jar'
+)) {
+    if (-not $entrypointText.Contains($fragment)) {
+        throw "Secure front entrypoint property is missing: $fragment"
+    }
+}
+if ($entrypointText.Contains('exec java ${JAVA_TOOL_OPTIONS')) {
+    throw 'JAVA_TOOL_OPTIONS must not be expanded explicitly by the front entrypoint.'
+}
+
+$shardingTemplate = Get-Content -LiteralPath (Join-Path $root 'deploy/shardingsphere/shardingsphere-jdbc.yml.template') -Raw
+foreach ($fragment in @(
+    'jdbc:mysql://mysql:3306/${MYSQL_DATABASE}',
+    'allowPublicKeyRetrieval=true',
+    'username: ${MYSQL_USER_YAML}',
+    'password: ${MYSQL_PASSWORD_YAML}',
+    'maximumPoolSize: 10',
+    'minimumIdle: 2',
+    'actualDataNodes: ds_1.book_content${0..9}',
+    'algorithm-expression: book_content${index_id % 10}',
+    'sql-show: false'
+)) {
+    if (-not $shardingTemplate.Contains($fragment)) {
+        throw "Private ShardingSphere template property is missing: $fragment"
+    }
+}
+
+$dockerIgnoreLines = @(Get-Content -LiteralPath (Join-Path $root '.dockerignore'))
+foreach ($entry in @(
+    '*', '!pom.xml', '!novel-common/', '!novel-common/pom.xml',
+    '!novel-common/src/', '!novel-common/src/**', '!novel-front/',
+    '!novel-front/pom.xml', '!novel-front/src/', '!novel-front/src/**',
+    '!novel-admin/', '!novel-admin/pom.xml', '!novel-crawl/',
+    '!novel-crawl/pom.xml', '!templates/', '!templates/**', '!deploy/',
+    '!deploy/novel-front/', '!deploy/novel-front/Dockerfile',
+    '!deploy/novel-front/entrypoint.sh', '!deploy/shardingsphere/',
+    '!deploy/shardingsphere/shardingsphere-jdbc.yml.template',
+    '**/src/main/resources/application*-dev.yml',
+    '**/src/main/build/config/shardingsphere-jdbc.yml'
+)) {
+    if ($dockerIgnoreLines -notcontains $entry) {
+        throw "Docker build exclusion is missing: $entry"
+    }
 }
 Write-Host 'Production deployment configuration contracts passed.'

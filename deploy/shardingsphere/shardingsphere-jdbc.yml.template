@@ -1,0 +1,35 @@
+mode:
+  type: Standalone
+  repository:
+    type: JDBC
+
+dataSources:
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&connectTimeout=3000&socketTimeout=5000
+    username: ${MYSQL_USER_YAML}
+    password: ${MYSQL_PASSWORD_YAML}
+    maximumPoolSize: 10
+    minimumIdle: 2
+    connectionTimeout: 5000
+    validationTimeout: 3000
+rules:
+  - !SINGLE
+    tables:
+      - "*.*"
+  - !SHARDING
+    tables:
+      book_content:
+        actualDataNodes: ds_1.book_content${0..9}
+        tableStrategy:
+          standard:
+            shardingColumn: index_id
+            shardingAlgorithmName: bookContentSharding
+    shardingAlgorithms:
+      bookContentSharding:
+        type: INLINE
+        props:
+          algorithm-expression: book_content${index_id % 10}
+props:
+  sql-show: false
