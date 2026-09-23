@@ -597,4 +597,170 @@ foreach ($fragment in @(
 if ($productionPrometheus.Contains('host.docker.internal')) {
     throw 'Production Prometheus must use Docker DNS, not host.docker.internal.'
 }
+
+$nginxContracts = @(
+    'deploy/nginx/nginx.conf',
+    'deploy/nginx/conf.d/novel-front.conf',
+    'deploy/nginx/https-activation.example.conf'
+)
+foreach ($relativePath in $nginxContracts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root $relativePath) -PathType Leaf)) {
+        throw "Production Nginx file is missing: $relativePath"
+    }
+}
+
+function Get-ActiveNginxText([string]$Path) {
+    return ((Get-Content -LiteralPath $Path | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_) -and $_ -notmatch '^\s*#'
+    }) -join "`n")
+}
+
+$nginxGlobal = Get-ActiveNginxText (Join-Path $root 'deploy/nginx/nginx.conf')
+foreach ($fragment in @(
+    'worker_processes 2;',
+    'worker_connections 1024;',
+    'access_log /dev/stdout main;',
+    'error_log /dev/stderr warn;',
+    'include /etc/nginx/mime.types;',
+    'server_tokens off;',
+    'client_max_body_size 10m;',
+    'limit_req_zone $binary_remote_addr zone=public_api:10m rate=20r/s;',
+    'limit_req_zone $binary_remote_addr zone=static_assets:10m rate=100r/s;',
+    'limit_conn_zone $binary_remote_addr zone=per_ip:10m;',
+    'gzip on;',
+    'text/css',
+    'application/javascript',
+    'application/json',
+    'image/svg+xml',
+    'include /etc/nginx/conf.d/*.conf;'
+)) {
+    if (-not $nginxGlobal.Contains($fragment)) {
+        throw "Production Nginx global property is missing: $fragment"
+    }
+}
+$globalDirectiveFamilies = @(
+    '^\s*worker_processes\s+',
+    '^\s*error_log\s+',
+    '^\s*client_max_body_size\s+',
+    '^\s*limit_conn_zone\s+'
+)
+foreach ($pattern in $globalDirectiveFamilies) {
+    if ([regex]::Matches($nginxGlobal, $pattern, [Text.RegularExpressions.RegexOptions]::Multiline).Count -ne 1) {
+        throw "Production Nginx global directive must appear exactly once: $pattern"
+    }
+}
+if ([regex]::Matches($nginxGlobal, '^\s*limit_req_zone\s+', [Text.RegularExpressions.RegexOptions]::Multiline).Count -ne 2) {
+    throw 'Production Nginx must define exactly the dynamic and static request-rate zones.'
+}
+
+$nginxFront = Get-ActiveNginxText (Join-Path $root 'deploy/nginx/conf.d/novel-front.conf')
+foreach ($fragment in @(
+    'listen 80 default_server;',
+    'server_name _;',
+    'location = /actuator { return 404; }',
+    'location ^~ /actuator/ { return 404; }',
+    'location ~* \.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$ {',
+    'limit_req zone=public_api burst=40 nodelay;',
+    'limit_conn per_ip 30;',
+    'proxy_pass http://novel-front:8083;',
+    'proxy_set_header Host $host;',
+    'proxy_set_header X-Real-IP $remote_addr;',
+    'proxy_set_header X-Forwarded-Host $host;',
+    'proxy_set_header X-Forwarded-Proto $scheme;',
+    'proxy_set_header X-Forwarded-For $remote_addr;',
+    'proxy_connect_timeout 3s;',
+    'proxy_send_timeout 30s;',
+    'proxy_read_timeout 30s;',
+    'proxy_cache off;'
+)) {
+    if (-not $nginxFront.Contains($fragment)) {
+        throw "Production Nginx front property is missing: $fragment"
+    }
+}
+$actuatorLocations = @($nginxFront -split "`n" | Where-Object { $_ -match '^\s*location\s+.*actuator' })
+if ($actuatorLocations.Count -ne 2) {
+    throw 'Production Nginx must have exactly two active Actuator denial locations.'
+}
+$dynamicLocation = [regex]::Match(
+    $nginxFront,
+    '(?ms)^\s*location\s+/\s*\{(?<body>.*?)^\s*\}'
+)
+if (-not $dynamicLocation.Success) {
+    throw 'Production Nginx dynamic location block is missing.'
+}
+$dynamicBody = $dynamicLocation.Groups['body'].Value
+foreach ($pattern in @(
+    '(?m)^\s*limit_req\s+',
+    '(?m)^\s*limit_conn\s+',
+    '(?m)^\s*proxy_pass\s+',
+    '(?m)^\s*proxy_set_header\s+Host\s+',
+    '(?m)^\s*proxy_set_header\s+X-Real-IP\s+',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-Host\s+',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-Proto\s+',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-For\s+',
+    '(?m)^\s*proxy_connect_timeout\s+',
+    '(?m)^\s*proxy_send_timeout\s+',
+    '(?m)^\s*proxy_read_timeout\s+',
+    '(?m)^\s*proxy_cache\s+'
+)) {
+    if ([regex]::Matches($dynamicBody, $pattern).Count -ne 1) {
+        throw "Production Nginx dynamic directive must appear exactly once: $pattern"
+    }
+}
+$staticMarker = 'location ~* \.(?:css|js|mjs|png|jpe?g|gif|svg|ico|woff2?)$ {'
+$staticLocation = [regex]::Match(
+    $nginxFront,
+    '(?ms)^\s*' + [regex]::Escape($staticMarker) + '\s*(?<body>.*?)^\s*\}'
+)
+if (-not $staticLocation.Success) {
+    throw 'Production Nginx static location block is missing.'
+}
+$staticBody = $staticLocation.Groups['body'].Value
+foreach ($pattern in @(
+    '(?m)^\s*limit_req\s+zone=static_assets\s+burst=200\s+nodelay;',
+    '(?m)^\s*limit_conn\s+per_ip\s+30;',
+    '(?m)^\s*proxy_pass\s+http://novel-front:8083;',
+    '(?m)^\s*proxy_set_header\s+X-Real-IP\s+\$remote_addr;',
+    '(?m)^\s*proxy_set_header\s+X-Forwarded-For\s+\$remote_addr;',
+    '(?m)^\s*proxy_cache\s+off;'
+)) {
+    if ([regex]::Matches($staticBody, $pattern).Count -ne 1) {
+        throw "Production Nginx static directive must appear exactly once: $pattern"
+    }
+}
+if ($nginxFront.Contains('$proxy_add_x_forwarded_for')) {
+    throw 'Production Nginx must replace, not append, untrusted forwarded addresses.'
+}
+if ($nginxFront -match '(?im)^\s*(?:listen\s+(?:\[[^]]+\]:|[^:\s]+:)?443(?:\s|;)|return\s+30[1278]\s+https://|rewrite\s+.*https://|ssl_certificate(?:_key)?\s+)') {
+    throw 'Production Nginx must not activate TLS or redirects before certificates exist.'
+}
+
+$httpsExample = Get-ActiveNginxText (Join-Path $root 'deploy/nginx/https-activation.example.conf')
+foreach ($fragment in @(
+    'listen 443 ssl;',
+    '/etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem',
+    '/etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem',
+    'proxy_pass http://novel-front:8083;'
+)) {
+    if (-not $httpsExample.Contains($fragment)) {
+        throw "Nginx HTTPS activation example is incomplete: $fragment"
+    }
+}
+$httpsDynamicLocation = [regex]::Match(
+    $httpsExample,
+    '(?ms)^\s*location\s+/\s*\{(?<body>.*?)^\s*\}'
+)
+$httpsStaticLocation = [regex]::Match(
+    $httpsExample,
+    '(?ms)^\s*' + [regex]::Escape($staticMarker) + '\s*(?<body>.*?)^\s*\}'
+)
+if (-not $httpsDynamicLocation.Success -or -not $httpsStaticLocation.Success) {
+    throw 'Nginx HTTPS activation example must contain both dynamic and static proxy locations.'
+}
+if ($httpsDynamicLocation.Groups['body'].Value.Trim() -cne $dynamicBody.Trim()) {
+    throw 'Nginx HTTPS dynamic proxy boundary differs from the active HTTP boundary.'
+}
+if ($httpsStaticLocation.Groups['body'].Value.Trim() -cne $staticBody.Trim()) {
+    throw 'Nginx HTTPS static proxy boundary differs from the active HTTP boundary.'
+}
 Write-Host 'Production deployment configuration contracts passed.'
