@@ -890,6 +890,11 @@ foreach ($serviceName in @('novel-front', 'mysql', 'redis', 'kafka')) {
 foreach ($networkName in @('backend', 'monitoring')) {
     if ($composeModel.networks.$networkName.internal -ne $true) { throw "$networkName must be an internal Docker network." }
 }
+$loopbackAccessNetwork = Get-OptionalProperty $composeModel.networks 'loopback-access'
+if ($null -eq $loopbackAccessNetwork) { throw 'loopback-access Docker network is missing.' }
+if ((Get-OptionalProperty $loopbackAccessNetwork 'internal') -eq $true) {
+    throw 'loopback-access must be a non-internal Docker network so loopback port publishing works.'
+}
 if ($composeModel.services.nginx.networks.edge.ipv4_address -cne '172.30.0.2') {
     throw 'Nginx must use the fixed trusted edge address 172.30.0.2.'
 }
@@ -902,8 +907,8 @@ $expectedServiceNetworks = @{
     mysql = @('backend')
     redis = @('backend')
     kafka = @('backend')
-    prometheus = @('monitoring')
-    grafana = @('monitoring')
+    prometheus = @('loopback-access', 'monitoring')
+    grafana = @('loopback-access', 'monitoring')
 }
 foreach ($serviceName in $expectedServices) {
     $actualNetworks = @($composeModel.services.$serviceName.networks.PSObject.Properties.Name | Sort-Object)
