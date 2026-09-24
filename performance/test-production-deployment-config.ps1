@@ -1043,4 +1043,47 @@ if ($runtimeChecker -match '(?im)^\s*(?:cat|sed|awk|grep)\s+[^\r\n]*\.env\.prod'
     $runtimeChecker -match '(?im)docker\s+compose[^\r\n]*\sconfig(?:\s|$)') {
     throw 'Production Linux runtime checker must not print or render production secrets.'
 }
+
+$deploymentGuidePath = Join-Path $root 'deploy/README.md'
+if (-not (Test-Path -LiteralPath $deploymentGuidePath -PathType Leaf)) {
+    throw 'Production deployment runbook is missing.'
+}
+$deploymentGuide = Get-Content -LiteralPath $deploymentGuidePath -Raw -Encoding UTF8
+foreach ($fragment in @(
+    'Ubuntu 24.04', 'Docker Engine', 'Docker Compose plugin', 'unzip',
+    '/swapfile', 'vm.swappiness=10', 'Asia/Shanghai', 'non-root',
+    'PasswordAuthentication no', 'ufw allow OpenSSH', 'ufw allow 80/tcp',
+    'cp .env.prod.example .env.prod', 'chmod 600 .env.prod', 'openssl rand -hex 32',
+    'docker compose --env-file .env.prod -f compose.prod.yml build',
+    'docker compose --env-file .env.prod -f compose.prod.yml up -d',
+    'docker compose --env-file .env.prod -f compose.prod.yml down',
+    'docker compose --env-file .env.prod -f compose.prod.yml ps',
+    'docker compose --env-file .env.prod -f compose.prod.yml logs -f --tail=200 novel-front',
+    'docker stats --no-stream', './performance/check-production-deployment.sh',
+    './deploy/scripts/backup-mysql.sh', './deploy/scripts/restore-mysql.sh',
+    'ssh -L 3000:127.0.0.1:3000', 'ssh -L 9090:127.0.0.1:9090',
+    'HTTPS', 'DNS', 'certificate', '443:443', 'consumer lag', 'final backup',
+    'DNS switch', 'rollback', 'MySQL is authoritative', 'Redis and Kafka',
+    'credential rotation', 'copyright', 'first-launch acceptance'
+)) {
+    if (-not $deploymentGuide.Contains($fragment)) {
+        throw "Production deployment runbook is incomplete: $fragment"
+    }
+}
+foreach ($forbiddenPort in @('3306', '6379', '9092', '8083', '8084')) {
+    if ($deploymentGuide -match "(?im)^\s*(?:sudo\s+)?ufw\s+allow\s+$forbiddenPort(?:/tcp)?\s*$") {
+        throw "Production runbook must not open middleware/application port $forbiddenPort."
+    }
+}
+foreach ($guidePath in @(
+    (Join-Path $root 'docs/learning/novel-plus-evolution-guide.md'),
+    (Join-Path $root 'performance/README.md')
+)) {
+    $guideContent = Get-Content -LiteralPath $guidePath -Raw -Encoding UTF8
+    foreach ($fragment in @('2C4G', 'compose.prod.yml', 'Nginx', 'MySQL', 'Redis', 'Kafka', 'Prometheus', 'Grafana', 'environment-specific')) {
+        if (-not $guideContent.Contains($fragment)) {
+            throw "$([IO.Path]::GetFileName($guidePath)) production summary is missing: $fragment"
+        }
+    }
+}
 Write-Host 'Production deployment configuration contracts passed.'
