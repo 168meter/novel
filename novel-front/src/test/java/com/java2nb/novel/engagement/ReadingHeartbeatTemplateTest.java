@@ -28,9 +28,9 @@ class ReadingHeartbeatTemplateTest {
         "templates/mobile/book/book_content.html"
     })
     void chapterTemplateUsesOneSharedConditionalReadingHeartbeat(String resourcePath) throws IOException {
-        String template = readClasspathResource(resourcePath);
+        String template = normalizeLineEndings(readClasspathResource(resourcePath));
 
-        assertThat(template).containsOnlyOnce(DATA_ELEMENT);
+        assertThat(template).containsOnlyOnce(normalizeLineEndings(DATA_ELEMENT));
         assertThat(template).containsOnlyOnce(MODULE_TAG);
         assertThat(template)
             .doesNotContain("/engagement/reading/heartbeat")
@@ -42,5 +42,9 @@ class ReadingHeartbeatTemplateTest {
             assertThat(input).as("classpath resource %s", resourcePath).isNotNull();
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private static String normalizeLineEndings(String value) {
+        return value.replace("\r\n", "\n").replace('\r', '\n');
     }
 }
