@@ -470,3 +470,38 @@ docker compose -f '.\compose.local.yml' ps
 Redis/MySQL 应失败关闭，Kafka 停机不应影响认证，Mailpit 停机时公开响应仍保持统一且已发
 验证码状态应被异步撤销。脚本只接受回环 URL，只停止固定名称的本地容器，并在 `finally`
 恢复自己停止的容器；若出现 `CRITICAL`，立即按提示手工启动对应容器后再继续。
+
+## 2C4G 生产部署验收
+
+生产拓扑由 `compose.prod.yml` 定义：公网只到 Nginx；novel-front、MySQL、Redis、Kafka
+不发布宿主机端口；Prometheus 与 Grafana 仅绑定 `127.0.0.1`。容器总内存上限约 3.2 GiB，
+4 GiB Swap 只作为 OOM 保险。完整的 Ubuntu 初始化、HTTPS、备份、迁移和回滚步骤见
+`deploy/README.md`。
+
+提交或部署前运行静态配置契约和隔离脚本行为测试：
+
+```powershell
+& '.\performance\test-production-deployment-config.ps1'
+docker run --rm -v "${PWD}:/workspace:ro" --entrypoint sh redis:7-alpine `
+  /workspace/performance/test-production-backup-operations.sh
+docker run --rm -v "${PWD}:/workspace:ro" --entrypoint sh redis:7-alpine `
+  /workspace/performance/test-production-runtime-checker.sh
+```
+
+Linux 服务器上默认执行只读检查；首次上线或明确需要创建新备份时才使用开关：
+
+```bash
+./performance/check-production-deployment.sh
+./performance/check-production-deployment.sh --allow-backup
+docker compose --env-file .env.prod -f compose.prod.yml ps
+docker stats --no-stream
+```
+
+检查器验证七个容器健康、公网 socket、首页/Actuator 边界、Prometheus target、两个 Kafka
+consumer lag、容器内存限制、物理内存与 Swap、磁盘余量和最新 MySQL 备份。非零 lag 会明确
+告警而不是伪装成零；默认模式不会创建备份或修改运行状态。
+
+本地 Windows 基线和公网 Linux 结果不能直接横向比较。CPU 型号、虚拟化超售、磁盘、网络、
+JVM 暖机和香港跨境链路都会改变吞吐与 P99，因此所有 2C4G 数字都是 environment-specific，
+不是该架构在其他服务器上的通用承诺。公网压测必须限时、限流量，并持续观察 Nginx、Spring、
+MySQL、Redis、Kafka、Prometheus 和 Grafana 的资源指标。

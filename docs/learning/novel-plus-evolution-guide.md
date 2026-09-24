@@ -593,3 +593,31 @@ Argon2 成本不是越高越好，也不能拍脑袋固定。`benchmark-argon2.p
 上线前必须在目标 Linux 规格上重跑，结合登录峰值、CPU、内存和延迟预算选择参数，同时保留
 代码规定的安全下限。认证指标只使用 purpose/outcome/operation 等有限枚举标签，绝不把邮箱、
 IP、用户 ID、异常消息或 Token 放进 Prometheus。
+
+## 16. 第十阶段：2C4G 单机生产闭环
+
+这一阶段没有重写业务，而是把前面已经完成的 Redis 章节缓存、Kafka 点击/阅读事件、MySQL
+持久化、Prometheus/Grafana 和认证安全放进同一个可重复部署的边界。生产入口是
+`compose.prod.yml`：Nginx 是唯一公网入口；novel-front 同时连接 edge、backend 和 monitoring；
+MySQL、Redis、Kafka 只在 internal backend；Prometheus、Grafana 只在 internal monitoring，
+且监控 UI 仅绑定宿主机回环地址。
+
+2C4G 下不能依赖组件默认值。Spring JVM 使用 512 MiB heap 和有界 Tomcat/业务线程池；MySQL
+限制 InnoDB buffer pool 与连接数；Redis 用 176 MiB maxmemory 和 allkeys-lfu；Kafka 单 broker
+heap 384 MiB，并同时设置 topic 与全局 retention；Prometheus 最多保留 7 天/1 GiB。所有容器
+使用 Docker 日志轮转，应用和 Nginx 也有独立边界，防止约 50 GiB 磁盘被持续写满。
+
+公网安全不是“数据库设置密码”这么简单：MySQL、Redis、Kafka、8083、8084 均不发布端口；
+Actuator 在 Nginx 返回 404；Nginx 只信任固定 edge 地址并覆盖外部伪造的转发头；Grafana 禁止
+匿名访问。`.env.prod` 保存运行时密钥且不进入 Git，历史暴露凭据必须在提供商侧轮换。HTTP-only
+阶段不允许真实认证，DNS 与 certificate 就绪、443 listener 和 Secure cookie 验证通过后才开放。
+
+运维链路同样属于系统设计：`backup-mysql.sh` 产生 gzip/SHA-256 对并只保留最新 7 组；
+`restore-mysql.sh` 要求显式确认、校验文件且不自动 DROP；`check-production-deployment.sh` 默认
+只读，验证容器健康、公网端口、Prometheus、consumer lag、内存、Swap、磁盘和新鲜备份。
+迁移时 MySQL 是权威数据源，lag 归零后 Redis 和 Kafka 卷可以重建；用户图片与正文卷必须另行
+打包。完整命令、首次上线、HTTPS、DNS switch 与 rollback 顺序见 `deploy/README.md`。
+
+这套拓扑证明的是“在给定资源预算下建立边界、验证和恢复能力”，不是宣称固定 QPS。开发机、
+香港轻量云、不同 CPU/磁盘/网络下的结果都是 environment-specific。简历或面试应同时说明压测
+条件、容量拐点、失败语义和资源上限，不能把某一次测试数字包装成普遍性能。
