@@ -6,6 +6,13 @@
 
 **Architecture:** Keep `compose.local.yml` unchanged and add one standalone `compose.prod.yml`. Nginx and `novel-front` share an edge network; `novel-front`, MySQL, Redis, and Kafka share an internal backend network; `novel-front`, Prometheus, and Grafana share an internal monitoring network. Production secrets live only in an ignored `.env.prod`, and a non-root front entrypoint renders the ShardingSphere datasource file into a private runtime directory before Java starts.
 
+**Runtime amendment (2026-09-24):** Docker 29 records loopback port bindings but does not
+create host listeners when Prometheus and Grafana are attached exclusively to the
+`internal: true` monitoring network. Add a non-internal `loopback-access` bridge only to
+those two services, keep their published addresses at `127.0.0.1`, and extend the
+production configuration contract before changing Compose. Recreate both containers and
+verify real listeners plus localhost health endpoints on the server.
+
 **Tech Stack:** Docker Compose v2, Nginx 1.28 Alpine, Eclipse Temurin Java 21, Spring Boot 3.4, MySQL 8.0, Redis 7, Kafka 4.3 KRaft, Prometheus 3.5, Grafana 12.1, PowerShell contract tests, POSIX shell operations scripts.
 
 ---
@@ -1139,4 +1146,3 @@ passwords.
 
 Create a compressed backup, verify it, copy it off-server, and record its checksum. Perform
 one restore rehearsal into an isolated volume/database before calling deployment complete.
-

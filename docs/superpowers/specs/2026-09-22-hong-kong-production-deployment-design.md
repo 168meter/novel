@@ -96,6 +96,10 @@ Internet
                                                      |
                                                      v
                                                 [grafana:3000]
+                                                     |
+                                      loopback-access (non-internal bridge)
+                                                     |
+                              127.0.0.1:9090 / 127.0.0.1:3000
 ```
 
 Only Nginx publishes ports on public interfaces. Prometheus and Grafana may publish to
@@ -105,6 +109,12 @@ Only Nginx publishes ports on public interfaces. Prometheus and Grafana may publ
 The `edge` network contains Nginx and `novel-front`. The `backend` network is marked
 `internal: true` and contains `novel-front`, MySQL, Redis, and Kafka. The `monitoring`
 network is also internal and contains `novel-front`, Prometheus, and Grafana.
+
+Prometheus and Grafana additionally join a dedicated, non-internal `loopback-access`
+bridge network. This network exists only because Docker does not create host port
+listeners for containers attached exclusively to an `internal: true` network. Published
+ports remain explicitly bound to host `127.0.0.1`, so the additional network enables SSH
+tunnels without creating a public listener. `novel-front` does not join this network.
 
 Nginx receives a fixed address on a declared private subnet. The application trusts only
 that exact proxy address because the existing trusted-proxy implementation intentionally
@@ -248,6 +258,12 @@ Loopback bindings permit these SSH tunnels without exposing either service publi
 localhost:9090 -> server 127.0.0.1:9090
 localhost:3000 -> server 127.0.0.1:3000
 ```
+
+The production configuration contract must verify both halves of this boundary:
+Prometheus and Grafana remain on the internal `monitoring` network for service traffic,
+also join `loopback-access` for Docker port publication, and publish only to
+`127.0.0.1`. Runtime acceptance verifies actual host listeners rather than relying only
+on rendered Compose configuration.
 
 ## 12. Nginx Design
 
