@@ -63,6 +63,11 @@ spring:
     model:
       image: ${NOVEL_AI_MODEL_IMAGE:openai}
       chat: ${NOVEL_AI_MODEL_CHAT:openai}
+      audio:
+        speech: ${NOVEL_AI_MODEL_AUDIO_SPEECH:openai}
+        transcription: ${NOVEL_AI_MODEL_AUDIO_TRANSCRIPTION:openai}
+      embedding: ${NOVEL_AI_MODEL_EMBEDDING:openai}
+      moderation: ${NOVEL_AI_MODEL_MODERATION:openai}
     openai:
       image:
         base-url: https://api.siliconflow.cn

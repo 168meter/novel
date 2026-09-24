@@ -947,6 +947,17 @@ if ($frontEnvironment.SPRING_AI_MODEL_IMAGE -cne 'none') {
 if ($frontEnvironment.SPRING_AI_MODEL_CHAT -cne 'none') {
     throw 'novel-front must disable the Spring AI chat model when production AI is not configured.'
 }
+$disabledOptionalAiModels = @(
+    'SPRING_AI_MODEL_AUDIO_SPEECH',
+    'SPRING_AI_MODEL_AUDIO_TRANSCRIPTION',
+    'SPRING_AI_MODEL_EMBEDDING',
+    'SPRING_AI_MODEL_MODERATION'
+)
+foreach ($variableName in $disabledOptionalAiModels) {
+    if ((Get-OptionalProperty $frontEnvironment $variableName) -cne 'none') {
+        throw "novel-front must disable the optional Spring AI model: $variableName"
+    }
+}
 if ($null -ne (Get-OptionalProperty $frontEnvironment 'SPRING_AI_OPENAI_IMAGE_ENABLED')) {
     throw 'novel-front must not use the unsupported Spring AI image enabled switch.'
 }
