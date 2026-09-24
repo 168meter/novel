@@ -350,3 +350,27 @@ docker run --rm -v novel-plus-prod_novel-front-books:/source:ro -v "$PWD/deploy/
 
 Docker 安装命令依据 Docker 官方 Ubuntu 文档维护；正式执行前应再次对照官方说明与云厂商安全组
 行为，尤其注意 Docker published ports 与 UFW 的交互。
+
+## 10. 购机前生产预检记录（2026-09-24）
+
+在 Windows 开发工作树完成了以下购机前检查：
+
+- `test-production-deployment-config.ps1`、`test-auth-security-config.ps1`、
+  `test-observability-config.ps1` 全部通过；生产 Compose 可用临时环境文件完整渲染，临时文件在
+  `finally` 中删除。
+- Nginx `1.28.0-alpine` 执行 `nginx -t` 成功；Prometheus `3.5.0` 配置有效并加载 1 个规则文件、
+  23 条告警规则。
+- `deploy/` 与 `performance/` 下所有 `*.sh` 均通过 Alpine `sh -n`；数据库备份/恢复和生产运行
+  检查器的隔离行为测试均通过。
+- Maven 使用 `-Dmaven.test.skip=false -DskipTests=false test` 执行真实回归：`novel-common`
+  2 个测试、`novel-front` 323 个测试，共 325 个测试，0 failure、0 error，Reactor `BUILD SUCCESS`。
+- `deploy/novel-front/Dockerfile` 完整构建成功，生成 `novel-front:prod-test`；镜像 ID 为
+  `sha256:cfb4f33227fb51f0f2a65c8a18a30c1124bb5d6fb85cec7b2d4fb495dd59e75e`，默认用户为
+  `10001:10001`，容器内 `/app/novel-front.jar` 对该非 root 用户可读。
+- 生产部署文件和实际进入 `novel-front` 镜像的配置未发现可用明文密钥；敏感值均由
+  `.env.prod`/环境变量注入。仓库仍保留未部署的历史开发、管理端和爬虫示例配置，不能把其中
+  的默认口令复制到生产环境；曾经提交过的外部服务凭据必须在提供商侧完成 rotation。
+
+本次预检命令只验证本地构建制品和静态部署契约。它不能替代 Task 13 的 Linux 首次部署验收；
+购机后仍须在目标服务器重新构建镜像、运行 `check-production-deployment.sh`、检查容器资源与磁盘，
+并在开放真实注册登录前完成域名、HTTPS、Secure cookie 和外部备份验证。
