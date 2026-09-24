@@ -17,11 +17,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -41,9 +37,7 @@ public class AuthorController extends BaseController {
 
     private final BookService bookService;
 
-    private final ChatClient chatClient;
-
-    private final OpenAiChatModel chatModel;
+    private final ObjectProvider<ChatClient> chatClientProvider;
 
     /**
      * 校验笔名是否存在
@@ -238,7 +232,7 @@ public class AuthorController extends BaseController {
     @PostMapping("ai/expand")
     public RestResult<String> expandText(@RequestParam("text") String text, @RequestParam("ratio") Double ratio) {
         String prompt = "请将以下文本扩写为原长度的" + ratio / 100 + "倍：" + text;
-        return RestResult.ok(chatClient.prompt()
+        return RestResult.ok(requireChatClient().prompt()
             .user(prompt)
             .call()
             .content());
@@ -250,7 +244,7 @@ public class AuthorController extends BaseController {
     @PostMapping("ai/condense")
     public RestResult<String> condenseText(@RequestParam("text") String text, @RequestParam("ratio") Integer ratio) {
         String prompt = "请将以下文本缩写为原长度的" + 100 / ratio + "分之一：" + text;
-        return RestResult.ok(chatClient.prompt()
+        return RestResult.ok(requireChatClient().prompt()
             .user(prompt)
             .call()
             .content());
@@ -262,7 +256,7 @@ public class AuthorController extends BaseController {
     @PostMapping("ai/continue")
     public RestResult<String> continueText(@RequestParam("text") String text, @RequestParam("length") Integer length) {
         String prompt = "请续写以下文本，续写长度约为" + length + "字：" + text;
-        return RestResult.ok(chatClient.prompt()
+        return RestResult.ok(requireChatClient().prompt()
             .user(prompt)
             .call()
             .content());
@@ -274,7 +268,7 @@ public class AuthorController extends BaseController {
     @PostMapping("ai/polish")
     public RestResult<String> polishText(@RequestParam("text") String text) {
         String prompt = "请润色优化以下文本，保持原意：" + text;
-        return RestResult.ok(chatClient.prompt()
+        return RestResult.ok(requireChatClient().prompt()
             .user(prompt)
             .call()
             .content());
@@ -286,7 +280,7 @@ public class AuthorController extends BaseController {
     @GetMapping(value = "ai/stream/expand", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamExpandText(@RequestParam("text") String text, @RequestParam("ratio") Double ratio) {
         String prompt = "请将以下文本扩写为原长度的" + ratio / 100 + "倍：" + text;
-        return chatClient.prompt()
+        return requireChatClient().prompt()
             .user(prompt)
             .stream()
             .content();
@@ -298,7 +292,7 @@ public class AuthorController extends BaseController {
     @GetMapping(value = "ai/stream/condense", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamCondenseText(@RequestParam("text") String text, @RequestParam("ratio") Integer ratio) {
         String prompt = "请将以下文本缩写为原长度的" + 100 / ratio + "分之一：" + text;
-        return chatClient.prompt()
+        return requireChatClient().prompt()
             .user(prompt)
             .stream()
             .content();
@@ -310,7 +304,7 @@ public class AuthorController extends BaseController {
     @GetMapping(value = "ai/stream/continue", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamContinueText(@RequestParam("text") String text, @RequestParam("length") Integer length) {
         String prompt = "请续写以下文本，续写长度约为" + length + "字：" + text;
-        return chatClient.prompt()
+        return requireChatClient().prompt()
             .user(prompt)
             .stream()
             .content();
@@ -322,10 +316,18 @@ public class AuthorController extends BaseController {
     @GetMapping(value = "/ai/stream/polish", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> streamPolishText(@RequestParam("text") String text) {
         String prompt = "请润色优化以下文本，保持原意：" + text;
-        return chatClient.prompt()
+        return requireChatClient().prompt()
             .user(prompt)
             .stream()
             .content();
+    }
+
+    private ChatClient requireChatClient() {
+        ChatClient chatClient = chatClientProvider.getIfAvailable();
+        if (chatClient == null) {
+            throw new BusinessException(ResponseStatus.AUTH_UNAVAILABLE);
+        }
+        return chatClient;
     }
 
 }
