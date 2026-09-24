@@ -62,6 +62,7 @@ spring:
   ai:
     model:
       image: ${NOVEL_AI_MODEL_IMAGE:openai}
+      chat: ${NOVEL_AI_MODEL_CHAT:openai}
     openai:
       image:
         base-url: https://api.siliconflow.cn

@@ -944,6 +944,9 @@ if ($frontEnvironment.JAVA_TOOL_OPTIONS -cne '-Xms256m -Xmx512m -XX:+UseG1GC -XX
 if ($frontEnvironment.SPRING_AI_MODEL_IMAGE -cne 'none') {
     throw 'novel-front must disable the Spring AI image model when production AI is not configured.'
 }
+if ($frontEnvironment.SPRING_AI_MODEL_CHAT -cne 'none') {
+    throw 'novel-front must disable the Spring AI chat model when production AI is not configured.'
+}
 if ($null -ne (Get-OptionalProperty $frontEnvironment 'SPRING_AI_OPENAI_IMAGE_ENABLED')) {
     throw 'novel-front must not use the unsupported Spring AI image enabled switch.'
 }
