@@ -941,6 +941,12 @@ if ($frontEnvironment.JAVA_TOOL_OPTIONS -cne '-Xms256m -Xmx512m -XX:+UseG1GC -XX
     $frontEnvironment.SPRING_PROFILES_ACTIVE -cne 'prod,monitoring') {
     throw 'novel-front JVM or Spring profile settings are incorrect.'
 }
+if ($frontEnvironment.SPRING_AI_MODEL_IMAGE -cne 'none') {
+    throw 'novel-front must disable the Spring AI image model when production AI is not configured.'
+}
+if ($null -ne (Get-OptionalProperty $frontEnvironment 'SPRING_AI_OPENAI_IMAGE_ENABLED')) {
+    throw 'novel-front must not use the unsupported Spring AI image enabled switch.'
+}
 $requiredFrontEnvironment = @(
     'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'REDIS_PASSWORD',
     'JWT_SECRET', 'CACHE_MANAGER_PASSWORD', 'NOVEL_AUTH_HMAC_SECRET',

@@ -60,9 +60,10 @@ book:
 --- #--------------------- Spring AI 配置----------------------
 spring:
   ai:
+    model:
+      image: ${NOVEL_AI_MODEL_IMAGE:openai}
     openai:
       image:
-        enabled: true
         base-url: https://api.siliconflow.cn
         api-key: ${NOVEL_AI_API_KEY:}
         options:

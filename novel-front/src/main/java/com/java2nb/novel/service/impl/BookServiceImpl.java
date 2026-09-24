@@ -38,6 +38,7 @@ import org.springframework.ai.openai.OpenAiImageModel;
 import org.springframework.ai.openai.OpenAiImageOptions;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -100,7 +101,7 @@ public class BookServiceImpl implements BookService {
 
     private final BookPriceProperties bookPriceConfig;
 
-    private final OpenAiImageModel openAiImageModel;
+    private final ObjectProvider<OpenAiImageModel> openAiImageModelProvider;
 
     private final ThreadPoolExecutor threadPoolExecutor;
 
@@ -535,6 +536,11 @@ public class BookServiceImpl implements BookService {
         book.setUpdateTime(book.getCreateTime());
         bookMapper.insertSelective(book);
         if (Objects.isNull(book.getPicUrl()) || !book.getPicUrl().startsWith(Constants.LOCAL_PIC_PREFIX)) {
+            OpenAiImageModel openAiImageModel = openAiImageModelProvider.getIfAvailable();
+            if (openAiImageModel == null) {
+                log.debug("Skip AI cover generation because no image model is configured; bookId={}", book.getId());
+                return;
+            }
             // 用户没有上传封面图片，AI自动生成封面图片
             threadPoolExecutor.execute(() -> {
                 String prompt = String.format("生成一本小说的封面图片，图片中间显示书名《%s》，书名下方显示作者“%s 著”。",
