@@ -898,6 +898,9 @@ if ((Get-OptionalProperty $loopbackAccessNetwork 'internal') -eq $true) {
 if ($composeModel.services.nginx.networks.edge.ipv4_address -cne '172.30.0.2') {
     throw 'Nginx must use the fixed trusted edge address 172.30.0.2.'
 }
+if ($composeModel.services.'novel-front'.networks.edge.ipv4_address -cne '172.30.0.3') {
+    throw 'novel-front must use fixed edge address 172.30.0.3 to avoid taking the Nginx trusted proxy address.'
+}
 $edgeSubnets = @($composeModel.networks.edge.ipam.config | ForEach-Object { $_.subnet })
 if ($edgeSubnets -notcontains '172.30.0.0/24') { throw 'The edge network subnet must be 172.30.0.0/24.' }
 
