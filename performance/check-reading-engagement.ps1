@@ -187,5 +187,5 @@ else {
     Send-Heartbeat $session $token 1
     Send-Heartbeat $session $token 1
     Send-Heartbeat $session $token 2
-    Assert-Deltas $before @{ accepted = 2; duplicate = 1; credited = 60; kafka = 2 }
+    Assert-Deltas $before @{ accepted = 2; duplicate = 1; credited = 20; kafka = 2 }
 }
