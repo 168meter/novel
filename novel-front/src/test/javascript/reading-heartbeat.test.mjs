@@ -243,7 +243,7 @@ test('automatic bootstrap preserves snowflake ids as strings', async () => {
     await withBrowserGlobals(environment, () =>
         import(`../../main/resources/static/javascript/reading-heartbeat.mjs?bootstrap-snowflake=${Date.now()}`));
 
-    assert.equal(environment.timers.pendingDelay(), 30000);
+    assert.equal(environment.timers.pendingDelay(), 10000);
     environment.timers.runNext();
     assert.equal(fetchCalls.length, 1);
     const body = JSON.parse(fetchCalls[0].options.body);
