@@ -57,7 +57,7 @@ function docker {
         if ($event.version -ne 1) { $state.bad += $event; return }
         $key = $event.bookId.ToString() + '/' + $event.statDate
         if (-not $state.rows.ContainsKey($key)) { $state.rows[$key] = @{ seconds = 0; count = 0 } }
-        $state.rows[$key].seconds += 30; $state.rows[$key].count++
+        $state.rows[$key].seconds += 10; $state.rows[$key].count++
         return
     }
     throw 'Unhandled Docker test command.'
@@ -68,7 +68,7 @@ try {
         & $path -BookId 1 -FailureDrill $drill
         $state = $global:readingDailyTest
         if ($state.rows.Count -ne 3 -or $state.duplicates -ne 1 -or $state.cleaned -ne 1) { throw 'Ordinary acceptance or cleanup missing.' }
-        if ($drill -eq 'Dlt' -and ($state.bad.Count -ne 1 -or ($state.rows.Values.seconds | Measure-Object -Sum).Sum -ne 120)) { throw 'DLT acceptance missing.' }
+        if ($drill -eq 'Dlt' -and ($state.bad.Count -ne 1 -or ($state.rows.Values.seconds | Measure-Object -Sum).Sum -ne 40)) { throw 'DLT acceptance missing.' }
         if ($drill -eq 'MySql' -and ($state.stopped -ne 1 -or $state.started -ne 1 -or $state.retry -ne 1)) { throw 'MySQL restoration/retry missing.' }
     }
     foreach ($fault in @('Occupied', 'Publish')) {

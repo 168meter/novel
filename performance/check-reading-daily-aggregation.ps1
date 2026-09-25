@@ -76,7 +76,7 @@ function New-Event($Book, [string]$Date, [int]$Version = 1) {
     $script:eventIds += $id
     return @{ key = $Book.key; body = [ordered]@{
         eventId = $id; bookId = $Book.id; chapterId = $chapterId
-        creditedSeconds = 30; occurredAt = "${Date}T04:00:00Z"; statDate = $Date; version = $Version
+        creditedSeconds = 10; occurredAt = "${Date}T04:00:00Z"; statDate = $Date; version = $Version
     } }
 }
 function Publish($Event) {
@@ -132,19 +132,19 @@ try {
             Write-Host 'RESTORED: novel-mysql healthy.'
         }
     } else { Publish $first }
-    Wait-Until { (Assert-Row $a $date1 30 1) -and (Get-Lag) -eq 0 } 'first 30-second credit'
+    Wait-Until { (Assert-Row $a $date1 10 1) -and (Get-Lag) -eq 0 } 'first reading credit'
     Publish $first
     Wait-Until { (Get-Lag) -eq 0 } 'duplicate replay drain'
-    if (-not (Assert-Row $a $date1 30 1)) { throw 'Duplicate changed the reading row.' }
+    if (-not (Assert-Row $a $date1 10 1)) { throw 'Duplicate changed the reading row.' }
     Publish (New-Event $a $date2)
     Publish (New-Event $b $date1)
-    Wait-Until { (Assert-Row $a $date2 30 1) -and (Assert-Row $b $date1 30 1) -and (Get-Lag) -eq 0 } 'book/date split'
+    Wait-Until { (Assert-Row $a $date2 10 1) -and (Assert-Row $b $date1 10 1) -and (Get-Lag) -eq 0 } 'book/date split'
     if ($FailureDrill -eq 'Dlt') {
         $before = Get-DltOffsets
         $bad = New-Event $a $date1 99
         Publish $bad
         Publish (New-Event $a $date1)
-        Wait-Until { (Assert-Row $a $date1 60 2) -and (Get-Lag) -eq 0 } 'later valid event after DLT'
+        Wait-Until { (Assert-Row $a $date1 20 2) -and (Get-Lag) -eq 0 } 'later valid event after DLT'
         $after = Get-DltOffsets
         [long]$delta = 0; $partition = $null
         foreach ($part in $before.Keys) {
@@ -159,7 +159,7 @@ try {
         if ($decoded.eventId -ne $bad.body.eventId) { throw 'Reading DLT contained the wrong event ID.' }
     }
     $drained = $true
-    Write-Host "PASS: first credit=30/1; replay delta=0; book/date split; reading lag=0; drill=$FailureDrill."
+    Write-Host "PASS: first credit=10/1; replay delta=0; book/date split; reading lag=0; drill=$FailureDrill."
 } finally {
     # Never remove dedup protection while an unacknowledged record could replay.
     if ($published -and $drained) {

@@ -298,7 +298,7 @@ docker compose -f '.\compose.local.yml' ps
 
 在无其他阅读流量的本地实例上先跑普通 smoke。脚本使用独立 WebRequestSession
 保留匿名 Cookie，默认只读查询该书第一个非 VIP 章节，再从真实 HTML 提取页面 token。
-序列 1、重复 1、2 应产生 accepted +2、duplicate +1、credited seconds +60、
+序列 1、重复 1、2 应产生 accepted +2、duplicate +1、credited seconds +20、
 Kafka success +2；发送后最多轮询十秒。HTTP 200 本身不代表计时成功，必须核对这些增量。
 
 ```powershell
@@ -352,8 +352,8 @@ ReadingEngagementKafkaPublishFailures 无额外等待，在评估到五分钟内
 这些 PromQL 只按有限 result 聚合，不含书籍、章节、Cookie、hash、IP 等高基数标签。
 
 桌面浏览器与移动端分别打开可读章节，Network 过滤 heartbeat：保持页面可见且有焦点
-完整 30 秒才出现 sequence 1；20 秒时切走应舍弃不足 30 秒的片段，返回后重计完整
-30 秒。桌面测试切换窗口、标签页；移动端测试切后台、锁屏再返回。离开页面不补发，
+完整 10 秒才出现 sequence 1；不足 10 秒时切走应舍弃未完成的片段，返回后重新计算完整
+10 秒。桌面测试切换窗口、标签页；移动端测试切后台、锁屏再返回。离开页面不补发，
 网络失败不立即重试，下一次完整活跃周期才发送递增 sequence。普通 smoke 不执行浏览器
 JavaScript，因此不能替代这项人工验收。
 
@@ -382,7 +382,7 @@ and restores it in `finally`; other application operations may fail during it.
 The first command simulates external boundaries; its PASS is not live verification.
 
 Live checks publish UUID events with valid eight-byte Kafka Long keys, verify
-30 seconds / one heartbeat, unchanged identical replay, book/date separation,
+10 seconds / one heartbeat, unchanged identical replay, book/date separation,
 and a drained reading group. Dlt mode checks exactly one new DLT record and its
 event ID, plus a later normal credit. MySql mode requires actual retry metric
 growth before restoration and exactly one resulting credit.
