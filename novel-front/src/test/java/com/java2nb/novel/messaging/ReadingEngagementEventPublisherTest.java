@@ -50,14 +50,14 @@ class ReadingEngagementEventPublisherTest {
         when(kafkaTemplate.send(eq("custom-reading-topic"), eq(42L), any(ReadingEngagementEvent.class)))
             .thenReturn(CompletableFuture.completedFuture(sendResult));
 
-        publisher.publish(42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10));
+        publisher.publish(42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10));
 
         var eventCaptor = org.mockito.ArgumentCaptor.forClass(ReadingEngagementEvent.class);
         verify(kafkaTemplate).send(eq("custom-reading-topic"), eq(42L), eventCaptor.capture());
         ReadingEngagementEvent event = eventCaptor.getValue();
         assertThat(event.bookId()).isEqualTo(42L);
         assertThat(event.chapterId()).isEqualTo(7L);
-        assertThat(event.creditedSeconds()).isEqualTo(30);
+        assertThat(event.creditedSeconds()).isEqualTo(10);
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2026-09-10T00:00:00Z"));
         assertThat(event.statDate()).isEqualTo(LocalDate.of(2026, 9, 10));
         assertThat(registry.counter("novel.reading.kafka.send", "result", "success").count()).isEqualTo(1);
@@ -69,7 +69,7 @@ class ReadingEngagementEventPublisherTest {
             .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker unavailable")));
 
         assertThatCode(() -> publisher.publish(
-            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
@@ -81,7 +81,7 @@ class ReadingEngagementEventPublisherTest {
             .thenThrow(new KafkaException("metadata unavailable"));
 
         assertThatCode(() -> publisher.publish(
-            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
@@ -93,7 +93,7 @@ class ReadingEngagementEventPublisherTest {
             .thenThrow(new IllegalStateException("producer state unavailable"));
 
         assertThatCode(() -> publisher.publish(
-            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
@@ -102,7 +102,7 @@ class ReadingEngagementEventPublisherTest {
     @Test
     void recordsEventConstructionFailureWithoutPropagating() {
         assertThatCode(() -> publisher.publish(
-            42L, 7L, 60, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
+            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"), LocalDate.of(2026, 9, 10)))
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
@@ -120,7 +120,7 @@ class ReadingEngagementEventPublisherTest {
         logger.addAppender(appender);
 
         try {
-            publisher.publish(42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"),
+            publisher.publish(42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"),
                 LocalDate.of(2026, 9, 10));
 
             assertThat(appender.list)
@@ -148,7 +148,7 @@ class ReadingEngagementEventPublisherTest {
 
         try {
             for (int failure = 0; failure < 1001; failure++) {
-                publisher.publish(42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"),
+                publisher.publish(42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"),
                     LocalDate.of(2026, 9, 10));
             }
 

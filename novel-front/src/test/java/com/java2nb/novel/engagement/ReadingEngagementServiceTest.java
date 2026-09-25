@@ -52,7 +52,7 @@ class ReadingEngagementServiceTest {
     }
 
     @Test
-    void acceptedHeartbeatBuildsExactCommandAndPublishesThirtySeconds() {
+    void acceptedHeartbeatBuildsExactCommandAndPublishesTenSeconds() {
         ReadingHeartbeatRequest request = new ReadingHeartbeatRequest(42L, 7L, PAGE_VISIT_ID, 3L);
         when(identityHasher.sessionHash("browser-user-mark")).thenReturn("session-hash");
         when(identityHasher.ipHmac("203.0.113.9")).thenReturn("ip-hmac");
@@ -76,9 +76,9 @@ class ReadingEngagementServiceTest {
             "ip-hmac",
             SHANGHAI_STAT_DATE,
             1_789_057_800_000L));
-        verify(publisher).publish(42L, 7L, 30, FIXED_INSTANT, SHANGHAI_STAT_DATE);
+        verify(publisher).publish(42L, 7L, 10, FIXED_INSTANT, SHANGHAI_STAT_DATE);
         assertThat(heartbeatCount(ReadingHeartbeatOutcome.ACCEPTED)).isEqualTo(1.0);
-        assertThat(meterRegistry.counter("novel.reading.credited.seconds").count()).isEqualTo(30.0);
+        assertThat(meterRegistry.counter("novel.reading.credited.seconds").count()).isEqualTo(10.0);
     }
 
     @ParameterizedTest

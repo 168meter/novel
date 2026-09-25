@@ -11,8 +11,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class ReadingEventValidator {
 
-    private static final int SUPPORTED_VERSION = 1;
-    private static final int CREDITED_SECONDS = 30;
+    private static final int SUPPORTED_VERSION = ReadingEngagementEvent.VERSION;
+    private static final int CREDITED_SECONDS = ReadingEngagementEvent.CREDITED_SECONDS;
     private static final ZoneId STAT_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Instant MIN_DATABASE_INSTANT = LocalDateTime.of(
         1000, 1, 1, 0, 0).atZone(STAT_ZONE).toInstant();
@@ -33,7 +33,7 @@ public class ReadingEventValidator {
             throw invalid("chapterId must be positive");
         }
         if (event.creditedSeconds() == null || event.creditedSeconds() != CREDITED_SECONDS) {
-            throw invalid("creditedSeconds must be 30");
+            throw invalid("creditedSeconds must be 10");
         }
         if (event.occurredAt() == null) {
             throw invalid("occurredAt must not be null");
