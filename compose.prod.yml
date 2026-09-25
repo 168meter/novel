@@ -78,9 +78,10 @@ services:
       - novel-front-books:/var/lib/novel-plus/books
       - novel-front-logs:/app/logs
     networks:
-      - edge
-      - backend
-      - monitoring
+      edge:
+        ipv4_address: 172.30.0.3
+      backend:
+      monitoring:
     depends_on:
       mysql:
         condition: service_healthy
