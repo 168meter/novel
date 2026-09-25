@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 
 import {createReadingHeartbeat} from '../../main/resources/static/javascript/reading-heartbeat.mjs';
@@ -8,6 +9,8 @@ const PAYLOAD = {
     chapterId: 99,
     pageVisitId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 };
+const SNOWFLAKE_BOOK_ID = '2055879962859147264';
+const SNOWFLAKE_CHAPTER_ID = '2055880123456789012';
 
 class FakeEventTarget {
     constructor() {
@@ -221,20 +224,42 @@ test('does not schedule while the page is inactive', () => {
     assert.equal(environment.timers.pendingCount(), 0);
 });
 
-test('automatic bootstrap starts with valid element data', async () => {
-    const environment = createEnvironment();
+test('automatic bootstrap preserves snowflake ids as strings', async () => {
+    const fetchCalls = [];
+    const environment = createEnvironment({
+        fetchFn: (url, options) => {
+            fetchCalls.push({url, options});
+            return Promise.resolve();
+        }
+    });
     environment.documentRef.getElementById = (id) => id === 'reading-engagement' ? {
         dataset: {
-            bookId: '42',
-            chapterId: '99',
+            bookId: SNOWFLAKE_BOOK_ID,
+            chapterId: SNOWFLAKE_CHAPTER_ID,
             pageVisitId: '0123456789abcdef0123456789abcdef'
         }
     } : null;
 
     await withBrowserGlobals(environment, () =>
-        import(`../../main/resources/static/javascript/reading-heartbeat.mjs?bootstrap-valid=${Date.now()}`));
+        import(`../../main/resources/static/javascript/reading-heartbeat.mjs?bootstrap-snowflake=${Date.now()}`));
 
     assert.equal(environment.timers.pendingDelay(), 30000);
+    environment.timers.runNext();
+    assert.equal(fetchCalls.length, 1);
+    const body = JSON.parse(fetchCalls[0].options.body);
+    assert.equal(body.bookId, SNOWFLAKE_BOOK_ID);
+    assert.equal(body.chapterId, SNOWFLAKE_CHAPTER_ID);
+    assert.equal(typeof body.bookId, 'string');
+    assert.equal(typeof body.chapterId, 'string');
+});
+
+test('production external heartbeat asset matches the canonical module', async () => {
+    const canonical = await readFile(new URL(
+        '../../main/resources/static/javascript/reading-heartbeat.mjs', import.meta.url), 'utf8');
+    const production = await readFile(new URL(
+        '../../../../templates/green/static/javascript/reading-heartbeat.mjs', import.meta.url), 'utf8');
+
+    assert.equal(production, canonical);
 });
 
 test('automatic bootstrap stays silent for absent or invalid data', async () => {
