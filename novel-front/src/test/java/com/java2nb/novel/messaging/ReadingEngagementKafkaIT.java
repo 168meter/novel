@@ -143,7 +143,7 @@ class ReadingEngagementKafkaIT {
                 for (long book : List.of(101L, 102L, 103L, 105L)) {
                     assertThat(jdbc.queryForObject(
                         "SELECT COALESCE(SUM(credited_seconds),0) FROM book_reading_daily WHERE book_id = ?",
-                        Long.class, book)).isEqualTo(60L);
+                        Long.class, book)).isEqualTo(20L);
                 }
                 assertThat(registry.counter("novel.book.visit.kafka.consumed").count())
                     .isEqualTo(1);
@@ -184,7 +184,7 @@ class ReadingEngagementKafkaIT {
                 .findFirst().orElseThrow().key()).containsExactly(invalidKey);
             assertThat(registry.counter("novel.reading.kafka.dlt").count()).isEqualTo(5);
             assertThat(registry.counter("novel.reading.kafka.persisted_seconds").count())
-                .isEqualTo(270);
+                .isEqualTo(90);
             assertThat(registry.counter("novel.reading.kafka.consumed").count()).isEqualTo(9);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM reading_event_dedup", Integer.class))
                 .isEqualTo(10);
@@ -193,7 +193,7 @@ class ReadingEngagementKafkaIT {
                 .isZero();
             assertThat(jdbc.queryForObject(
                 "SELECT credited_seconds FROM book_reading_daily WHERE book_id=107", Long.class))
-                .isEqualTo(30);
+                .isEqualTo(10);
             verify(visitWriter).write(Map.of(9001L, 1L));
             verifyNoMoreInteractions(visitWriter);
         } finally {

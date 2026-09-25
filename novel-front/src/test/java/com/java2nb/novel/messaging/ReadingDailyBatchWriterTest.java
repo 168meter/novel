@@ -65,7 +65,7 @@ class ReadingDailyBatchWriterTest {
 
         ReadingBatchWriteResult result = writer.write(List.of(first, second, third));
 
-        assertThat(result).isEqualTo(new ReadingBatchWriteResult(3, 3, 0, 2, 90L));
+        assertThat(result).isEqualTo(new ReadingBatchWriteResult(3, 3, 0, 2, 30L));
         verify(mapper, times(1)).insertDedupRecords(anyList());
         verify(mapper, times(1)).findDedupStates(anyList());
         @SuppressWarnings("unchecked")
@@ -99,7 +99,7 @@ class ReadingDailyBatchWriterTest {
 
         ReadingBatchWriteResult result = writer.write(List.of(event, event));
 
-        assertThat(result).isEqualTo(new ReadingBatchWriteResult(2, 1, 1, 1, 30L));
+        assertThat(result).isEqualTo(new ReadingBatchWriteResult(2, 1, 1, 1, 10L));
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<List<ReadingDedupRecord>> records =
             org.mockito.ArgumentCaptor.forClass(List.class);
@@ -183,7 +183,7 @@ class ReadingDailyBatchWriterTest {
             eventId,
             bookId,
             7L,
-            30,
+            10,
             instant,
             instant.atZone(java.time.ZoneId.of("Asia/Shanghai")).toLocalDate(),
             1);

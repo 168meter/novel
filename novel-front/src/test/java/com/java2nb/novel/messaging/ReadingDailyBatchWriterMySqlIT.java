@@ -113,11 +113,11 @@ class ReadingDailyBatchWriterMySqlIT {
         ReadingBatchWriteResult first = writer.write(events);
         ReadingBatchWriteResult replay = writer.write(events);
 
-        assertThat(first).isEqualTo(new ReadingBatchWriteResult(4, 4, 0, 3, 120L));
+        assertThat(first).isEqualTo(new ReadingBatchWriteResult(4, 4, 0, 3, 40L));
         assertThat(replay).isEqualTo(new ReadingBatchWriteResult(4, 0, 4, 0, 0L));
-        assertCounters(FIRST_DATE, FIRST_BOOK, 60L, 2L);
-        assertCounters(FIRST_DATE, SECOND_BOOK, 30L, 1L);
-        assertCounters(SECOND_DATE, FIRST_BOOK, 30L, 1L);
+        assertCounters(FIRST_DATE, FIRST_BOOK, 20L, 2L);
+        assertCounters(FIRST_DATE, SECOND_BOOK, 10L, 1L);
+        assertCounters(SECOND_DATE, FIRST_BOOK, 10L, 1L);
         assertThat(countDedup(EVENT_IDS.subList(0, 4))).isEqualTo(4);
     }
 
@@ -146,7 +146,7 @@ class ReadingDailyBatchWriterMySqlIT {
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
 
-        assertCounters(FIRST_DATE, FIRST_BOOK, 30L, 1L);
+        assertCounters(FIRST_DATE, FIRST_BOOK, 10L, 1L);
         assertThat(countDedup(List.of(EVENT_IDS.get(4)))).isEqualTo(1);
     }
 
@@ -191,7 +191,7 @@ class ReadingDailyBatchWriterMySqlIT {
         Instant occurredAt = date.atTime(12, 0).atZone(SHANGHAI).toInstant()
             .plusSeconds(secondOffset);
         return new ReadingEngagementEvent(
-            eventId, bookId, 7L, 30, occurredAt, date, 1);
+            eventId, bookId, 7L, 10, occurredAt, date, 1);
     }
 
     @Configuration(proxyBeanMethods = false)
