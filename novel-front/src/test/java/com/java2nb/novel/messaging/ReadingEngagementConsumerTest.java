@@ -42,12 +42,12 @@ class ReadingEngagementConsumerTest {
     @Test
     void recordsOnlyCommittedWriterResultsIncludingReplay() {
         List<ReadingEngagementEvent> batch = List.of(event(1, 42), event(1, 42), event(2, 43));
-        when(writer.write(batch)).thenReturn(new ReadingBatchWriteResult(3, 2, 1, 2, 60));
+        when(writer.write(batch)).thenReturn(new ReadingBatchWriteResult(3, 2, 1, 2, 20));
         consumer.consume(batch);
         verify(writer, times(1)).write(batch);
         assertThat(count("consumed")).isEqualTo(3);
         assertThat(count("deduplicated")).isEqualTo(1);
-        assertThat(count("persisted_seconds")).isEqualTo(60);
+        assertThat(count("persisted_seconds")).isEqualTo(20);
         assertThat(count("daily_rows_updated")).isEqualTo(2);
         assertThat(registry.get("novel.reading.kafka.batch_size").summary().totalAmount())
             .isEqualTo(3);
@@ -57,11 +57,11 @@ class ReadingEngagementConsumerTest {
     void invalidMiddleRecordCommitsPrefixBeforeReportingItsIndex() {
         ReadingEngagementEvent valid = event(1, 42);
         List<ReadingEngagementEvent> prefix = List.of(valid);
-        when(writer.write(prefix)).thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 30));
+        when(writer.write(prefix)).thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 10));
         assertIndexedFailure(List.of(valid, event(2, 0), event(3, 43)), 1);
         verify(writer).write(prefix);
         verifyNoMoreInteractions(writer);
-        assertThat(count("persisted_seconds")).isEqualTo(30);
+        assertThat(count("persisted_seconds")).isEqualTo(10);
         assertThat(registry.counter("novel.reading.kafka.invalid", "reason", "validation")
             .count()).isEqualTo(1);
     }
@@ -78,13 +78,13 @@ class ReadingEngagementConsumerTest {
         List<ReadingEngagementEvent> batch = List.of(event(1, 42), event(2, 43), event(3, 44));
         when(writer.write(batch)).thenThrow(new ReadingEventConflictException(event(2, 43).eventId()));
         when(writer.write(batch.subList(0, 1)))
-            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 30));
+            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 10));
         assertIndexedFailure(batch, 1);
         var order = inOrder(writer);
         order.verify(writer).write(batch);
         order.verify(writer).write(batch.subList(0, 1));
         assertThat(count("consumed")).isEqualTo(1);
-        assertThat(count("persisted_seconds")).isEqualTo(30);
+        assertThat(count("persisted_seconds")).isEqualTo(10);
     }
 
     @Test
@@ -92,10 +92,10 @@ class ReadingEngagementConsumerTest {
         List<ReadingEngagementEvent> batch = List.of(event(1, 42), event(2, 43), event(1, 44));
         when(writer.write(batch)).thenThrow(new ReadingEventConflictException(event(1, 42).eventId()));
         when(writer.write(batch.subList(0, 2)))
-            .thenReturn(new ReadingBatchWriteResult(2, 2, 0, 2, 60));
+            .thenReturn(new ReadingBatchWriteResult(2, 2, 0, 2, 20));
         assertIndexedFailure(batch, 2);
         verify(writer).write(batch.subList(0, 2));
-        assertThat(count("persisted_seconds")).isEqualTo(60);
+        assertThat(count("persisted_seconds")).isEqualTo(20);
     }
 
     @Test
@@ -106,9 +106,9 @@ class ReadingEngagementConsumerTest {
         when(writer.write(batch.subList(0, 2)))
             .thenThrow(new ReadingEventConflictException(event(2, 43).eventId()));
         when(writer.write(batch.subList(0, 1)))
-            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 30));
+            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 10));
         assertIndexedFailure(batch, 1);
-        assertThat(count("persisted_seconds")).isEqualTo(30);
+        assertThat(count("persisted_seconds")).isEqualTo(10);
     }
 
     @Test
@@ -153,13 +153,13 @@ class ReadingEngagementConsumerTest {
         ConsumerRecord<Long, ReadingEngagementEvent> failed = record(1, event(2, 43));
         failed.headers().add(SerializationUtils.KEY_DESERIALIZER_EXCEPTION_HEADER, new byte[] {1});
         when(writer.write(List.of(first.value())))
-            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 30));
+            .thenReturn(new ReadingBatchWriteResult(1, 1, 0, 1, 10));
         assertThatThrownBy(() -> consumer.consumeRecords(List.of(first, failed, record(2, event(3, 44)))))
             .isInstanceOfSatisfying(BatchListenerFailedException.class,
                 failure -> assertThat(failure.getIndex()).isEqualTo(1));
         verify(writer).write(List.of(first.value()));
         verifyNoMoreInteractions(writer);
-        assertThat(count("persisted_seconds")).isEqualTo(30);
+        assertThat(count("persisted_seconds")).isEqualTo(10);
         assertThat(registry.counter("novel.reading.kafka.invalid", "reason", "deserialization")
             .count()).isEqualTo(1);
     }
@@ -192,7 +192,7 @@ class ReadingEngagementConsumerTest {
 
     static ReadingEngagementEvent event(int id, long book) {
         return new ReadingEngagementEvent(
-            "92000000-0000-0000-0000-%012d".formatted(id), book, 7L, 30,
+            "92000000-0000-0000-0000-%012d".formatted(id), book, 7L, 10,
             Instant.parse("2026-09-14T04:00:00Z"), LocalDate.of(2026, 9, 14), 1);
     }
 }

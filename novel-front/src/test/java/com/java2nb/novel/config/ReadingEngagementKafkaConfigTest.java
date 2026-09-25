@@ -161,7 +161,7 @@ class ReadingEngagementKafkaConfigTest {
 
     private static ConsumerRecord<Long, ReadingEngagementEvent> record(int partition, long offset) {
         ReadingEngagementEvent event = ReadingEngagementEvent.create(
-            42L, 7L, 30, Instant.parse("2026-09-10T00:00:00Z"),
+            42L, 7L, 10, Instant.parse("2026-09-10T00:00:00Z"),
             LocalDate.of(2026, 9, 10));
         return new ConsumerRecord<>("novel-reading-engagement-v1", partition, offset, 42L, event);
     }

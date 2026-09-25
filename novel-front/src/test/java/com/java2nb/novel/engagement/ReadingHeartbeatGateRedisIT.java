@@ -74,9 +74,11 @@ class ReadingHeartbeatGateRedisIT {
             .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
         assertThat(gate.evaluate(command(identity, 1L, BASE_TIME_MILLIS + 1L)))
             .isEqualTo(ReadingHeartbeatOutcome.DUPLICATE);
-        assertThat(gate.evaluate(command(identity, 2L, BASE_TIME_MILLIS + 2L)))
-            .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
-        assertThat(gate.evaluate(command(identity, 3L, BASE_TIME_MILLIS + 3L)))
+        for (long sequence = 2; sequence <= 8; sequence++) {
+            assertThat(gate.evaluate(command(identity, sequence, BASE_TIME_MILLIS + sequence)))
+                .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
+        }
+        assertThat(gate.evaluate(command(identity, 9L, BASE_TIME_MILLIS + 9L)))
             .isEqualTo(ReadingHeartbeatOutcome.SESSION_RATE_LIMITED);
     }
 
@@ -84,16 +86,18 @@ class ReadingHeartbeatGateRedisIT {
     void storesExactlyTheDailyCapAndRejectsTheNextSpacedHeartbeat() {
         TestIdentity identity = newIdentity();
         registerPage(identity.pageVisitId(), identity.sessionHash(), 42L, 99L);
+        properties.setDailyCapSeconds(30);
+        gate = new ReadingHeartbeatGate(redisTemplate, properties, new SimpleMeterRegistry());
 
-        for (long sequence = 1; sequence <= 60; sequence++) {
+        for (long sequence = 1; sequence <= 3; sequence++) {
             long now = BASE_TIME_MILLIS + (sequence - 1L) * 61_000L;
             assertThat(gate.evaluate(command(identity, sequence, now)))
                 .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
         }
 
         assertThat(redisTemplate.opsForValue().get(creditKey(identity.sessionHash(), 42L, 99L)))
-            .isEqualTo("1800");
-        assertThat(gate.evaluate(command(identity, 61L, BASE_TIME_MILLIS + 60L * 61_000L)))
+            .isEqualTo("30");
+        assertThat(gate.evaluate(command(identity, 4L, BASE_TIME_MILLIS + 3L * 61_000L)))
             .isEqualTo(ReadingHeartbeatOutcome.DAILY_CAP_REACHED);
     }
 
@@ -132,7 +136,7 @@ class ReadingHeartbeatGateRedisIT {
             for (Future<ReadingHeartbeatOutcome> future : futures) {
                 outcomes.add(future.get(10, TimeUnit.SECONDS));
             }
-            assertThat(outcomes).filteredOn(ReadingHeartbeatOutcome.ACCEPTED::equals).hasSize(1);
+            assertThat(outcomes).filteredOn(ReadingHeartbeatOutcome.ACCEPTED::equals).hasSize(3);
             assertThat(outcomes).allMatch(outcome -> outcome == ReadingHeartbeatOutcome.ACCEPTED
                 || outcome == ReadingHeartbeatOutcome.DAILY_CAP_REACHED
                 || outcome == ReadingHeartbeatOutcome.DUPLICATE);

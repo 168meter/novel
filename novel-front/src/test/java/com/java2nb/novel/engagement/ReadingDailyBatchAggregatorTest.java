@@ -28,9 +28,9 @@ class ReadingDailyBatchAggregatorTest {
             event("00000000-0000-0000-0000-000000000004", 42L, firstDate, late)));
 
         assertThat(result).containsExactly(
-            new ReadingDailyAggregate(firstDate, 41L, 30L, 1L, middle, middle),
-            new ReadingDailyAggregate(firstDate, 42L, 60L, 2L, early, late),
-            new ReadingDailyAggregate(secondDate, 42L, 30L, 1L, late, late));
+            new ReadingDailyAggregate(firstDate, 41L, 10L, 1L, middle, middle),
+            new ReadingDailyAggregate(firstDate, 42L, 20L, 2L, early, late),
+            new ReadingDailyAggregate(secondDate, 42L, 10L, 1L, late, late));
     }
 
     @Test
@@ -51,6 +51,6 @@ class ReadingDailyBatchAggregatorTest {
         Instant occurredAt
     ) {
         return new ReadingEngagementEvent(
-            eventId, bookId, 7L, 30, occurredAt, statDate, 1);
+            eventId, bookId, 7L, 10, occurredAt, statDate, 1);
     }
 }

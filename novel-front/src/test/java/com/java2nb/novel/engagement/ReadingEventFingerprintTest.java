@@ -15,7 +15,7 @@ class ReadingEventFingerprintTest {
         "123e4567-e89b-12d3-a456-426614174000",
         42L,
         7L,
-        30,
+        10,
         Instant.parse("2026-09-10T00:00:00Z"),
         LocalDate.of(2026, 9, 10),
         1);
@@ -28,23 +28,23 @@ class ReadingEventFingerprintTest {
 
         assertThat(first).hasSize(32).containsExactly(second);
         assertThat(HexFormat.of().formatHex(first))
-            .isEqualTo("f4490a2e34966cda829193fb7518313635d7212ff44c22c5a4210cd55d279ae2");
+            .isEqualTo("962d80a6bf3b6c0b7f6d898dba1309efa4cf0bce1b0b09ca43d5ea17b1aedb49");
     }
 
     @Test
     void everyBusinessFieldParticipatesInTheFingerprint() {
         String baseHex = hex(BASE);
         List<ReadingEngagementEvent> mutations = List.of(
-            copy("123e4567-e89b-12d3-a456-426614174001", 42L, 7L, 30,
+            copy("123e4567-e89b-12d3-a456-426614174001", 42L, 7L, 10,
                 BASE.occurredAt(), BASE.statDate(), 1),
-            copy(BASE.eventId(), 43L, 7L, 30, BASE.occurredAt(), BASE.statDate(), 1),
-            copy(BASE.eventId(), 42L, 8L, 30, BASE.occurredAt(), BASE.statDate(), 1),
-            copy(BASE.eventId(), 42L, 7L, 31, BASE.occurredAt(), BASE.statDate(), 1),
-            copy(BASE.eventId(), 42L, 7L, 30, BASE.occurredAt().plusMillis(1),
+            copy(BASE.eventId(), 43L, 7L, 10, BASE.occurredAt(), BASE.statDate(), 1),
+            copy(BASE.eventId(), 42L, 8L, 10, BASE.occurredAt(), BASE.statDate(), 1),
+            copy(BASE.eventId(), 42L, 7L, 11, BASE.occurredAt(), BASE.statDate(), 1),
+            copy(BASE.eventId(), 42L, 7L, 10, BASE.occurredAt().plusMillis(1),
                 BASE.statDate(), 1),
-            copy(BASE.eventId(), 42L, 7L, 30, BASE.occurredAt(),
+            copy(BASE.eventId(), 42L, 7L, 10, BASE.occurredAt(),
                 BASE.statDate().plusDays(1), 1),
-            copy(BASE.eventId(), 42L, 7L, 30, BASE.occurredAt(), BASE.statDate(), 2));
+            copy(BASE.eventId(), 42L, 7L, 10, BASE.occurredAt(), BASE.statDate(), 2));
 
         assertThat(mutations).allSatisfy(event -> assertThat(hex(event)).isNotEqualTo(baseHex));
     }
