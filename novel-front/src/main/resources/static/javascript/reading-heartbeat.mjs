@@ -101,13 +101,7 @@ function readBootstrapPayload(element) {
         return null;
     }
 
-    const parsedBookId = Number(bookId);
-    const parsedChapterId = Number(chapterId);
-    if (!Number.isSafeInteger(parsedBookId) || !Number.isSafeInteger(parsedChapterId)) {
-        return null;
-    }
-
-    return {bookId: parsedBookId, chapterId: parsedChapterId, pageVisitId};
+    return {bookId, chapterId, pageVisitId};
 }
 
 function bootstrap() {

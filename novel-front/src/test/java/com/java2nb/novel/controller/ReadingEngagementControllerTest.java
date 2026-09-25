@@ -75,13 +75,40 @@ class ReadingEngagementControllerTest {
         verify(engagementService).handle(expectedRequest, "browser-user-mark", "203.0.113.9");
     }
 
+    @Test
+    void snowflakeIdStringsBindToLongWithoutPrecisionLoss() throws Exception {
+        long bookId = 2055879962859147264L;
+        long chapterId = 2055880123456789012L;
+        ReadingHeartbeatRequest expectedRequest =
+            new ReadingHeartbeatRequest(bookId, chapterId, PAGE_VISIT_ID, 1L);
+        when(clientAddressResolver.resolve(any(HttpServletRequest.class))).thenReturn("203.0.113.9");
+        when(engagementService.handle(expectedRequest, "browser-user-mark", "203.0.113.9"))
+            .thenReturn(ReadingHeartbeatOutcome.ACCEPTED);
+
+        try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
+            threadLocal.when(ThreadLocalUtil::getClientId).thenReturn("browser-user-mark");
+
+            mockMvc.perform(post("/engagement/reading/heartbeat")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {"bookId":"2055879962859147264","chapterId":"2055880123456789012",
+                         "pageVisitId":"0123456789abcdef0123456789abcdef","sequence":1}
+                        """))
+                .andExpect(status().isOk());
+        }
+
+        verify(engagementService)
+            .handle(expectedRequest, "browser-user-mark", "203.0.113.9");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "{\"bookId\":0,\"chapterId\":7,\"pageVisitId\":\"0123456789abcdef0123456789abcdef\",\"sequence\":3}",
         "{\"bookId\":42,\"chapterId\":7,\"pageVisitId\":\"0123\",\"sequence\":3}",
         "{\"bookId\":42,\"chapterId\":7,\"pageVisitId\":\"g123456789abcdef0123456789abcdef\",\"sequence\":3}",
         "{\"bookId\":42,\"chapterId\":7,\"pageVisitId\":\"0123456789abcdef0123456789abcdef\",\"sequence\":0}",
-        "{\"bookId\":42,\"chapterId\":7,\"pageVisitId\":\"0123456789abcdef0123456789abcdef\",\"sequence\":10001}"
+        "{\"bookId\":42,\"chapterId\":7,\"pageVisitId\":\"0123456789abcdef0123456789abcdef\",\"sequence\":10001}",
+        "{\"bookId\":\"9223372036854775808\",\"chapterId\":7,\"pageVisitId\":\"0123456789abcdef0123456789abcdef\",\"sequence\":3}"
     })
     void malformedHeartbeatReturnsBadRequestWithoutCallingService(String json) throws Exception {
         mockMvc.perform(post("/engagement/reading/heartbeat")
