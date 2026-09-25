@@ -81,8 +81,8 @@ class ReadingHeartbeatGateTest {
             "reading:rate:ip:ip-hmac",
             "reading:credit:2026-09-10:session-hash:42:99");
         assertThat(argumentCaptor.getAllValues()).containsExactly(
-            "session-hash", "42", "99", "7", "1789000000000", "1788999940000", "2", "120", "1800",
-            "30", "120", "172800", "abc123:7");
+            "session-hash", "42", "99", "7", "1789000000000", "1788999940000", "8", "120", "1800",
+            "10", "120", "172800", "abc123:7");
     }
 
     @Test

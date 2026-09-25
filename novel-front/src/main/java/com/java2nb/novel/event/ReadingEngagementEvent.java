@@ -17,7 +17,8 @@ public record ReadingEngagementEvent(
     Integer version
 ) {
 
-    private static final int CREDITED_SECONDS = 30;
+    public static final int VERSION = 1;
+    public static final int CREDITED_SECONDS = 10;
 
     public static ReadingEngagementEvent create(
         Long bookId,
@@ -33,7 +34,7 @@ public record ReadingEngagementEvent(
             throw new IllegalArgumentException("chapterId must be positive");
         }
         if (creditedSeconds != CREDITED_SECONDS) {
-            throw new IllegalArgumentException("creditedSeconds must be 30");
+            throw new IllegalArgumentException("creditedSeconds must be 10");
         }
         if (occurredAt == null) {
             throw new IllegalArgumentException("occurredAt must not be null");
@@ -42,6 +43,6 @@ public record ReadingEngagementEvent(
             throw new IllegalArgumentException("statDate must not be null");
         }
         return new ReadingEngagementEvent(
-            UUID.randomUUID().toString(), bookId, chapterId, creditedSeconds, occurredAt, statDate, 1);
+            UUID.randomUUID().toString(), bookId, chapterId, creditedSeconds, occurredAt, statDate, VERSION);
     }
 }

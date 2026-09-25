@@ -17,12 +17,12 @@ class ReadingEngagementEventTest {
     @Test
     void createsVersionedAnonymousCreditEvent() {
         ReadingEngagementEvent event = ReadingEngagementEvent.create(
-            42L, 7L, 30, OCCURRED_AT, STAT_DATE);
+            42L, 7L, 10, OCCURRED_AT, STAT_DATE);
 
         assertThat(event.eventId()).isNotBlank();
         assertThat(event.bookId()).isEqualTo(42L);
         assertThat(event.chapterId()).isEqualTo(7L);
-        assertThat(event.creditedSeconds()).isEqualTo(30);
+        assertThat(event.creditedSeconds()).isEqualTo(10);
         assertThat(event.occurredAt()).isEqualTo(OCCURRED_AT);
         assertThat(event.statDate()).isEqualTo(STAT_DATE);
         assertThat(event.version()).isEqualTo(1);
@@ -31,31 +31,31 @@ class ReadingEngagementEventTest {
     @Test
     void assignsDistinctEventIdsForSeparateEvents() {
         ReadingEngagementEvent first = ReadingEngagementEvent.create(
-            42L, 7L, 30, OCCURRED_AT, STAT_DATE);
+            42L, 7L, 10, OCCURRED_AT, STAT_DATE);
         ReadingEngagementEvent second = ReadingEngagementEvent.create(
-            42L, 7L, 30, OCCURRED_AT, STAT_DATE);
+            42L, 7L, 10, OCCURRED_AT, STAT_DATE);
 
         assertThat(second.eventId()).isNotEqualTo(first.eventId());
     }
 
     @Test
     void rejectsInvalidIdentifiersCreditAndTimes() {
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(0L, 7L, 30, OCCURRED_AT, STAT_DATE))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(0L, 7L, 10, OCCURRED_AT, STAT_DATE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("bookId");
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, null, 30, OCCURRED_AT, STAT_DATE))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, null, 10, OCCURRED_AT, STAT_DATE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("chapterId");
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 29, OCCURRED_AT, STAT_DATE))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 9, OCCURRED_AT, STAT_DATE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("creditedSeconds");
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 31, OCCURRED_AT, STAT_DATE))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 30, OCCURRED_AT, STAT_DATE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("creditedSeconds");
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 30, null, STAT_DATE))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 10, null, STAT_DATE))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("occurredAt");
-        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 30, OCCURRED_AT, null))
+        assertThatThrownBy(() -> ReadingEngagementEvent.create(42L, 7L, 10, OCCURRED_AT, null))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("statDate");
     }

@@ -24,10 +24,10 @@ class ReadingEngagementPropertiesTest {
             assertThat(properties.rateWindow()).isEqualTo(Duration.ofSeconds(60));
             assertThat(properties.rateKeyTtl()).isEqualTo(Duration.ofMinutes(2));
             assertThat(properties.creditKeyTtl()).isEqualTo(Duration.ofDays(2));
-            assertThat(properties.sessionLimit()).isEqualTo(2);
+            assertThat(properties.sessionLimit()).isEqualTo(8);
             assertThat(properties.ipLimit()).isEqualTo(120);
             assertThat(properties.dailyCapSeconds()).isEqualTo(1800);
-            assertThat(properties.creditedSeconds()).isEqualTo(30);
+            assertThat(properties.creditedSeconds()).isEqualTo(10);
             assertThat(properties.zoneId()).isEqualTo(ZoneId.of("Asia/Shanghai"));
         });
     }

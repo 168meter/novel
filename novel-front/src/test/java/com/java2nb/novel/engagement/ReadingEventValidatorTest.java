@@ -18,7 +18,7 @@ class ReadingEventValidatorTest {
     @Test
     void acceptsVersionOneEventWhoseDateMatchesShanghaiTime() {
         ReadingEngagementEvent event = event(
-            EVENT_ID, 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 1);
+            EVENT_ID, 42L, 7L, 10, OCCURRED_AT, STAT_DATE, 1);
 
         assertThat(validator.validate(event)).isSameAs(event);
     }
@@ -26,55 +26,55 @@ class ReadingEventValidatorTest {
     @Test
     void rejectsNullAndMalformedEventIds() {
         assertInvalid(null);
-        assertInvalid(event(null, 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event("not-a-uuid", 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event("1-1-1-1-1", 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(null, 42L, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event("not-a-uuid", 42L, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event("1-1-1-1-1", 42L, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
     }
 
     @Test
     void rejectsNonPositiveOrMissingBookAndChapterIds() {
-        assertInvalid(event(EVENT_ID, null, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 0L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, -1L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, null, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, 0L, 30, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, -1L, 30, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, null, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 0L, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, -1L, 7L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, null, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, 0L, 10, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, -1L, 10, OCCURRED_AT, STAT_DATE, 1));
     }
 
     @Test
     void rejectsInvalidSecondsTimestampDateAndVersion() {
         assertInvalid(event(EVENT_ID, 42L, 7L, null, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 29, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 31, OCCURRED_AT, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30, null, STAT_DATE, 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30, OCCURRED_AT, null, 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30, OCCURRED_AT, STAT_DATE, null));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 2));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 9, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 30, OCCURRED_AT, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10, null, STAT_DATE, 1));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10, OCCURRED_AT, null, 1));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10, OCCURRED_AT, STAT_DATE, null));
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10, OCCURRED_AT, STAT_DATE, 2));
     }
 
     @Test
     void rejectsStatDateThatDoesNotMatchShanghaiCalendarDate() {
         ReadingEngagementEvent event = event(
-            EVENT_ID, 42L, 7L, 30, OCCURRED_AT, LocalDate.of(2026, 9, 9), 1);
+            EVENT_ID, 42L, 7L, 10, OCCURRED_AT, LocalDate.of(2026, 9, 9), 1);
 
         assertInvalid(event);
     }
 
     @Test
     void rejectsInstantsOutsideMysqlDatetimeRangeAsInvalidEvents() {
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30,
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10,
             Instant.parse("0999-12-31T15:59:59.999Z"), LocalDate.of(999, 12, 31), 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30,
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10,
             Instant.parse("9999-12-31T16:00:00Z"), LocalDate.of(10000, 1, 1), 1));
-        assertInvalid(event(EVENT_ID, 42L, 7L, 30,
+        assertInvalid(event(EVENT_ID, 42L, 7L, 10,
             Instant.MAX, LocalDate.MAX, 1));
     }
 
     @Test
     void acceptsMysqlDatetimeBoundaryInstants() {
-        ReadingEngagementEvent minimum = event(EVENT_ID, 42L, 7L, 30,
+        ReadingEngagementEvent minimum = event(EVENT_ID, 42L, 7L, 10,
             Instant.parse("0999-12-31T16:00:00Z"), LocalDate.of(1000, 1, 1), 1);
-        ReadingEngagementEvent maximum = event(EVENT_ID, 42L, 7L, 30,
+        ReadingEngagementEvent maximum = event(EVENT_ID, 42L, 7L, 10,
             Instant.parse("9999-12-31T15:59:59.999Z"), LocalDate.of(9999, 12, 31), 1);
 
         assertThat(validator.validate(minimum)).isSameAs(minimum);
