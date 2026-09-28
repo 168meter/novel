@@ -34,6 +34,8 @@ Expected: FAIL because the dedicated class and safe DOM rendering do not exist.
 **Files:**
 - Modify: `novel-front/src/main/resources/static/javascript/common.js`
 - Modify: `novel-front/src/main/resources/static/css/base.css`
+- Modify: `templates/green/static/javascript/common.js`
+- Modify: `templates/green/static/css/base.css`
 
 - [ ] **Step 1: Replace authenticated HTML string construction**
 
@@ -43,11 +45,15 @@ Derive `displayName` from `nickName || username || ""`; create the name anchor w
 
 Add `.bookShelf .header_user_name` with inline-block single-line ellipsis and a desktop maximum width. Add a narrow-screen media rule with a smaller maximum width.
 
-- [ ] **Step 3: Run the focused test**
+- [ ] **Step 3: Synchronize production external assets**
+
+Copy the finalized shared JavaScript and CSS into `templates/green/static`. The production profile serves these external files from `/app/templates`, so the test must assert that both copies are byte-for-byte equal.
+
+- [ ] **Step 4: Run the focused test**
 
 Run the Task 1 command. Expected: PASS.
 
-- [ ] **Step 4: Run related authentication tests**
+- [ ] **Step 5: Run related authentication tests**
 
 Run:
 
@@ -57,7 +63,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Check the diff**
+- [ ] **Step 6: Check the diff**
 
 Run `git diff --check` and confirm only the test, shared script, shared stylesheet, design, and plan are part of this fix.
 

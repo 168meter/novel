@@ -67,10 +67,18 @@ if (!token) {
         dataType: "json",
         success: function (data) {
             if (data.code == 200) {
-                $(".user_link").html("<i class=\"line mr20\">|</i>" +
-                    "<a href=\"/user/userinfo.html\"  class=\"mr15\">" + data.data.nickName + "</a>" +
-                    "<a href=\"javascript:logout()\" >退出</a>");
-                ;
+                var displayName = data.data.nickName || data.data.username || "";
+                var userNameLink = $("<a>", {
+                    href: "/user/userinfo.html",
+                    class: "mr15 header_user_name"
+                }).text(displayName).attr("title", displayName);
+                var logoutLink = $("<a>", {
+                    href: "javascript:logout()"
+                }).text("退出");
+                $(".user_link").empty()
+                    .append($("<i>", {class: "line mr20"}).text("|"))
+                    .append(userNameLink)
+                    .append(logoutLink);
                 if ("/user/login.html" == window.location.pathname) {
                     var orginUrl = getSearchString("originUrl");
                     window.location.href = orginUrl == undefined || orginUrl.isBlank() ? "/" : orginUrl;

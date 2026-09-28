@@ -7,6 +7,7 @@ After login, `static/javascript/common.js` replaces the header login/register li
 ## Scope
 
 - Change only the shared desktop header rendering and its responsive presentation.
+- Keep the classpath assets and the external `templates/green/static` production assets identical.
 - Preserve the complete nickname in application state and in the link `title` attribute.
 - Keep the bookshelf and logout actions visible.
 - Do not change authentication, registration, database values, API contracts, or mobile-only pages.
@@ -24,5 +25,6 @@ A classpath resource contract test will verify:
 - the script creates the dedicated username link and uses text/title setters;
 - no nickname is concatenated into an HTML string;
 - CSS contains the single-line ellipsis contract and a narrower responsive rule;
+- production external JS/CSS exactly match the tested classpath resources;
 - the logout action remains independently rendered.
 
