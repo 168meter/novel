@@ -427,9 +427,20 @@ input::-webkit-input-placeholder, textarea::-webkit-input-placeholder {
     margin: 6px 5px 0 0
 }
 
-.bookShelf .user_name {
-    max-width: 100px;
-    display: inline-block
+.bookShelf .user_name,
+.bookShelf .header_user_name {
+    max-width: 120px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle
+}
+
+@media (max-width: 768px) {
+    .bookShelf .header_user_name {
+        max-width: 72px
+    }
 }
 
 .bookShelf .line {
