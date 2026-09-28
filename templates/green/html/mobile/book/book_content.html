@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta th:if="${catId == 9}" name="viewport" content="width=device-width, initial-scale=0.5, maximum-scale=1">
+    <meta th:if="${catId != 9}" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title th:utext="${book.bookName}+${bookIndex.indexName}"></title>
+
+    <meta name="keywords" th:content="${book.bookName}+','+${bookIndex.indexName}">
+
+    <meta name="description"
+          th:content="${book.bookName}+'最新更新章节免费在线阅读TXT下载'">
+
+
+    <div th:include="mobile/common/css :: css"></div>
+
+
+    <script type="text/javascript">
+        function reinitIframe() {
+
+            var iframe = document.getElementById("frame_content");
+            try {
+                iframe.height = iframe.contentWindow.document.documentElement.scrollHeight;
+            } catch (ex) {
+            }
+        }
+
+        window.setInterval("reinitIframe()", 200);
+    </script>
+    <script th:fragment="js" src="/mobile/js/jquery-1.9.1.js"></script>
+    <script th:fragment="js" src="/mobile/layui/layui.all.js"></script>
+    </div>
+
+    <style type="text/css">
+        .line-limit-length {
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            white-space: nowrap;
+
+        }
+
+        .indexP p a {
+            color: #4c6978;
+        }
+
+        .Readarea {
+            font-size: 18px;
+            line-height: 35px;
+            padding: 10px;
+            color: #333;
+        }
+
+        div, p {
+            wrap-work: break-word;
+            word-break: break-all;
+            word-wrap: break-word;
+            word-break: normal;
+            -moz-box-sizing: border-box;
+            -webkit-box-sizing: border-box;
+            box-sizing: border-box;
+            -ms-box-sizing: border-box;
+        }
+
+        .indexDiv a {
+            margin-left: 20px;
+        }
+
+        .Readpage {
+            font-size: 14px;
+            padding: 0;
+            background: #d4eaf2;
+            height: 40px;
+            line-height: 40px;
+            text-align: center;
+        }
+
+        div, p {
+            wrap-work: break-word;
+            word-break: break-all;
+            word-wrap: break-word;
+            word-break: normal;
+            -moz-box-sizing: border-box;
+            -webkit-box-sizing: border-box;
+            box-sizing: border-box;
+            -ms-box-sizing: border-box;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            /* background-attachment: fixed; */
+        }
+
+        user agent stylesheet
+        p {
+            display: block;
+            -webkit-margin-before: 1em;
+            -webkit-margin-after: 1em;
+            -webkit-margin-start: 0px;
+            -webkit-margin-end: 0px;
+        }
+
+        .huyanon {
+            border: 1px solid #64c878;
+            box-shadow: 0 1px 2px #b9ecc4 inset, 0 -1px 0 #6c9f76 inset, 0 -2px 3px #b9ecc4 inset;
+            background: -webkit-linear-gradient(top, #90dfa2, #84d494);
+            background: -moz-linear-gradient(top, #90dfa2, #84d494);
+            background: linear-gradient(top, #90dfa2, #84d494);
+        }
+
+        .Readpage a {
+            font-size: 16px;
+            padding: 2px 2px;
+            line-height: 35px;
+        }
+
+        .lightoff, .huyanoff, .sizebgon {
+            border: 1px solid #333;
+            box-shadow: 0 1px 2px #8b8b8b inset, 0 -1px 0 #3d3d3d inset, 0 -2px 3px #8b8b8b inset;
+            background: -webkit-linear-gradient(top, #656565, #4c4c4c);
+            background: -moz-linear-gradient(top, #656565, #4a4a4a);
+            background: linear-gradient(top, #656565, #4a4a4a);
+        }
+
+        .button {
+            width: 40px;
+            line-height: 38px;
+            text-align: center;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 1px 1px 1px #333;
+            border-radius: 5px;
+            margin: 3px 0px 0px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        a {
+            color: #4c6978;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+        }
+
+        .lighton {
+            border: 1px solid #d2a000;
+            box-shadow: 0 1px 2px #fedd71 inset, 0 -1px 0 #a38b39 inset, 0 -2px 3px #fedd71 inset;
+            background: -webkit-linear-gradient(top, #fece34, #d8a605);
+            background: -moz-linear-gradient(top, #fece34, #d8a605);
+            background: linear-gradient(top, #fece34, #d8a605);
+        }
+
+        .screen_toolbar {
+            position: fixed;
+            width: 100%;
+            left: 0px;
+            bottom: 100px;
+            text-align: center;
+        }
+
+
+    </style>
+</head>
+<body id="read">
+<div id="content">
+
+
+    <input type="hidden" id="bookIdHidden" th:value="${book.id}"/>
+
+    <input type="hidden" id="bookNameHidden" th:value="${book.bookName}"/>
+
+    <input type="hidden" id="contentIdHidden" th:value="${bookIndex.id}"/>
+
+    <input type="hidden" id="indexNameHidden" th:value="${bookIndex.indexName}"/>
+
+    <input type="hidden" id="indexNumHidden" th:value="${bookIndex.indexNum}"/>
+
+    <script>
+        var token = localStorage.getItem("token");
+    </script>
+
+    <div style="height: 50px;line-height: 50px;text-align: center"
+         class="layui-header header header-doc  layui-bg-cyan">
+
+        <div style="width:10%;float: left;margin-left: 10px">
+            <a href="javascript:history.go(-1)">
+                <i style="font-size: 20px;color: #fff;" class="layui-icon">&#xe65c;</i></a>
+        </div>
+        <a style="color: #ffffff;" th:href="'/book/'+ ${book.id} + '.html'"><b
+                style="padding-left: 5%;float: left;width: 69%" class="line-limit-length"
+                th:utext="${bookIndex.indexName}+' '+${book.bookName}"></b></a>
+        <div style="width:10%;float: right;margin-right: 10px"><a href="/">
+            <i style="font-size: 20px;color: #fff;" class="layui-icon">&#xe68e;</i>
+        </a>
+        </div>
+    </div>
+
+
+    <p class="Readpage" style="background:#FFFFFF;padding:2px;">
+        <a id="lightdiv" class="button lightoff" onclick="nr_setbg('light')">关灯</a>
+        <a id="huyandiv" class="button huyanon" onclick="nr_setbg('huyan')">护眼</a>&nbsp;&nbsp;&nbsp;&nbsp;
+        字体：<a id="fontbig" class="sizebg" onclick="nr_setbg('big')">大</a> <a id="fontmiddle" class="button sizebgon"
+                                                                             onclick="nr_setbg('middle')">中</a> <a
+            id="fontsmall" class="sizebg" onclick="nr_setbg('small')">小</a>
+        <a href="javascript:speakChapter()" style="margin-left: 10px">
+            <svg t="1707099868768" class="icon" viewBox="0 0 800 800" version="1.1" xmlns="http://www.w3.org/2000/svg"
+                 p-id="1783" id="mx_n_1707099868769" width="22" height="22">
+                <path d="M393.707231 292.571429L343.13933 487.619048l46.955908 234.779541-97.523809-45.149912-66.82187-108.359788-21.671958-86.687831 66.82187-113.777778z"
+                      fill="#3eaf7c" p-id="1784"></path>
+                <path d="M451.499118 509.291005a104.747795 61.40388 90 1 0 122.80776 0 104.747795 61.40388 90 1 0-122.80776 0Z"
+                      fill="#3eaf7c" p-id="1785"></path>
+                <path d="M426.215168 781.996473c-3.611993 0-7.223986-1.805996-10.835979-3.611993l-117.389771-86.687831c-36.119929-23.477954-65.015873-57.791887-83.075838-99.329806-10.835979-25.283951-16.253968-52.373898-16.253968-81.269841s5.417989-55.985891 16.253968-81.269842c16.253968-41.537919 45.149912-74.045855 83.075838-97.523809l110.165785-77.657848c9.029982-5.417989 19.865961-3.611993 25.28395 3.611993 5.417989 9.029982 3.611993 19.865961-3.611993 25.28395L319.661376 361.199295c-32.507937 19.865961-55.985891 48.761905-70.433863 81.269841-9.029982 21.671958-14.447972 45.149912-14.447972 68.627866 0 23.477954 3.611993 45.149912 12.641976 66.821869 14.447972 34.313933 37.925926 63.209877 68.627866 83.075838l117.38977 86.687831c7.223986 5.417989 9.029982 18.059965 3.611993 25.28395 0 5.417989-5.417989 9.029982-10.835978 9.029983z"
+                      fill="#3eaf7c" p-id="1786"></path>
+                <path d="M523.738977 830.758377c-108.359788 0-193.241623-140.867725-193.241623-317.855379S415.379189 193.241623 523.738977 193.241623c25.283951 0 50.567901 7.223986 74.045855 23.477954 9.029982 5.417989 10.835979 16.253968 5.41799 25.28395s-16.253968 10.835979-25.283951 5.41799c-18.059965-10.835979-34.313933-18.059965-54.179894-18.059965-84.881834 0-157.121693 130.031746-157.121693 281.73545S438.857143 794.638448 523.738977 794.638448s157.121693-130.031746 157.121693-281.73545c0-74.045855-16.253968-146.285714-46.955908-198.659612-5.417989-9.029982-1.805996-19.865961 7.223986-25.28395 9.029982-5.417989 19.865961-1.805996 25.28395 7.223986 32.507937 59.597884 50.567901 135.449735 50.567902 216.719576C718.786596 689.890653 633.904762 830.758377 523.738977 830.758377z"
+                      fill="#3eaf7c" p-id="1787"></path>
+                <path d="M523.738977 646.546737c-48.761905 0-86.687831-59.597884-86.687831-133.643739S474.977072 379.259259 523.738977 379.259259s86.687831 59.597884 86.687831 133.643739-37.925926 133.643739-86.687831 133.643739z m0-232.973545c-23.477954 0-50.567901 39.731922-50.567901 97.52381s27.089947 97.52381 50.567901 97.523809 50.567901-39.731922 50.567901-97.523809-27.089947-97.52381-50.567901-97.52381z"
+                      fill="#3eaf7c" p-id="1788"></path>
+                <path d="M523.738977 413.573192h-1.805996l-92.105821-10.835979c-9.029982-1.805996-16.253968-10.835979-16.253968-19.865961 1.805996-9.029982 10.835979-16.253968 19.865961-16.253968l92.105821 10.835979c9.029982 1.805996 16.253968 10.835979 16.253968 19.865961 0 9.029982-9.029982 16.253968-18.059965 16.253968zM372.035273 662.800705c-9.029982 0-16.253968-7.223986-18.059964-16.253968-1.805996-9.029982 5.417989-18.059965 16.253968-19.865961l153.5097-16.253968c9.029982-1.805996 18.059965 5.417989 19.865961 16.253968 1.805996 9.029982-5.417989 18.059965-16.253968 19.865961l-153.5097 16.253968h-1.805997z"
+                      fill="#3eaf7c" p-id="1789"></path>
+                <path d="M763.936508 364.811287c-5.417989 0-9.029982-1.805996-12.641975-5.417989-7.223986-7.223986-7.223986-18.059965 0-25.283951l25.28395-25.28395c7.223986-7.223986 18.059965-7.223986 25.283951 0s7.223986 18.059965 0 25.28395L776.578483 359.393298c-3.611993 3.611993-9.029982 5.417989-12.641975 5.417989zM771.160494 720.592593c-5.417989 0-9.029982-1.805996-12.641975-5.41799l-25.283951-25.28395c-7.223986-7.223986-7.223986-18.059965 0-25.283951s18.059965-7.223986 25.283951 0l25.28395 25.283951c7.223986 7.223986 7.223986 18.059965 0 25.28395-3.611993 3.611993-7.223986 5.417989-12.641975 5.41799zM819.922399 529.156966h-54.179895c-10.835979 0-18.059965-7.223986-18.059964-18.059964s7.223986-18.059965 18.059964-18.059965h54.179895c10.835979 0 18.059965 7.223986 18.059964 18.059965s-9.029982 18.059965-18.059964 18.059964z"
+                      fill="#3eaf7c" p-id="1790"></path>
+            </svg>
+        </a>
+
+    </p>
+    <div class="indexDiv" style="height: 42px;line-height: 42px;text-align:center;background: #f2f2f2">
+
+        <a style="color: #333" th:href="'javascript:enterPreIndexPage(\''+${book.id}+'\',\''+${preBookIndexId}+'\');'">上一章</a>
+        <a style="color: #333" th:href="'/book/indexList-'+${book.id}+'.html'">目录</a>
+        <a style="color: #333"
+           th:href="'javascript:enterNextIndexPage(\''+${book.id}+'\',\''+${nextBookIndexId}+'\');'">下一章</a>
+    </div>
+    <!--<div id="screenInput" class="screen_toolbar" style="display: none">
+        <div style="height: 5px" class="layui-col-xs2 layui-col-sm3 layui-col-md3 layui-col-lg3"></div>
+        <div class="layui-col-xs6 layui-col-sm4 layui-col-md4 layui-col-lg4">
+            <input type="text" id="screenBulletText" required lay-verify="required" placeholder="请输入弹幕内容,右下角开关可控制弹幕是否开启" autocomplete="off"
+                   class="layui-input">
+
+        </div>
+        <div class="layui-col-xs2 layui-col-sm1 layui-col-md1 layui-col-lg1">
+            <button class="layui-btn send">发送</button>
+        </div>
+    </div>
+    <form id="screenSwitch" class="layui-form">
+        <div class="layui-form-item" style="position: fixed;right: 0px;bottom: 100px" title="弹幕开关">
+            &lt;!&ndash; <label  class="layui-form-label" style="opacity:0.5;font-weight: bold;color: red;">弹幕</label>&ndash;&gt;
+            <div class="layui-input-block">
+                <input class="clear" type="checkbox" name="switch" lay-skin="switch">
+            </div>
+        </div>
+    </form>-->
+    <div th:replace="mobile/common/js :: js">
+    </div>
+    <div id="chaptercontent" class="Readarea ReadAjax_content screen_container"
+         style="color: rgb(0, 0, 0); font-size: 20px;" th:if="${!needBuy}">
+        <p style="width:100%;text-alight:center; overflow: auto;-webkit-overflow-scrolling:touch;">
+            <span
+                    th:utext="${bookContent.content}"></span></p>
+    </div>
+    <div class="Readarea ReadAjax_content screen_container"
+         style="color: rgb(0, 0, 0); font-size: 20px;background-color: #fff" th:if="${needBuy}">
+        <h5>此章为VIP章节，需要订阅后才能继续阅读</h5>
+        价格：<span style="color: red" th:text="${bookIndex.bookPrice}+'屋币(1元=100屋币)'"></span><br/>
+        <a href="javascript:buyBookIndex()" type="button" class="layui-btn layui-btn-sm layui-btn-radius">购买</a>
+
+    </div>
+    <div class="indexDiv" style="height: 42px;line-height: 42px;text-align:center;background: #f2f2f2">
+
+        <a style="color: #333" th:href="'javascript:enterPreIndexPage(\''+${book.id}+'\',\''+${preBookIndexId}+'\');'">上一章</a>
+        <a style="color: #333" th:href="'/book/indexList-'+${book.id}+'.html'">目录</a>
+        <a style="color: #333"
+           th:href="'javascript:enterNextIndexPage(\''+${book.id}+'\',\''+${nextBookIndexId}+'\');'">下一章</a>
+
+    </div>
+
+
+</div>
+
+
+<div th:replace="mobile/common/footer :: footer">
+</div>
+
+<a name="buttom"></a>
+</body>
+
+<script>
+    var ua = navigator.userAgent;
+
+    var ipad = ua.match(/(iPad).*OS\s([\d_]+)/),
+
+        isIphone = !ipad && ua.match(/(iPhone\sOS)\s([\d_]+)/),
+
+        isAndroid = ua.match(/(Android)\s+([\d.]+)/),
+
+        isMobile = isIphone || isAndroid;
+
+
+</script>
+<script>
+    (function () {
+
+        //添加阅读记录
+        $.ajax({
+            type: "POST",
+            url: "/user/addReadHistory",
+            data: {'bookId': $("#bookIdHidden").val(), 'preContentId': $("#contentIdHidden").val()},
+            dataType: "json",
+            success: function (data) {
+
+            },
+            error: function () {
+            }
+        })
+
+
+    })();
+
+
+</script>
+
+<script src="/mobile/js/read.js"></script>
+<script language="javascript">getset()</script>
+<script language="javascript">getset1()</script>
+<script language="javascript">
+    var books = localStorage.getItem("historyBooks");
+    var item = parseInt($("#bookIdHidden").val());
+    if (books) {
+        var booksArr = JSON.parse(books);
+        if (booksArr.length >= 50) {
+            booksArr.splice(0, 1);
+        }
+        booksArr.remove(item);
+        booksArr[booksArr.length] = item;
+    } else {
+        var booksArr = [item];
+    }
+
+    localStorage.setItem("historyBooks", JSON.stringify(booksArr));//
+
+    function toMyCollect() {
+        var token = localStorage.getItem("token");
+        if (token) {
+            window.location.href = "/book/search?token=" + token;
+        } else {
+            window.location.href = "/user/login.html";
+        }
+    }
+
+    function buyBookIndex() {
+        $.ajax({
+            type: "POST",
+            url: "/user/buyBookIndex",
+            data: {
+                'bookId': $("#bookIdHidden").val(), "bookName": $("#bookNameHidden").val(),
+                "bookIndexId": $("#contentIdHidden").val(), "bookIndexName": $("#indexNameHidden").val()
+            },
+            dataType: "json",
+            success: function (data) {
+                if (data.code == 200) {
+                    location.reload();
+
+
+                } else if (data.code == 1001) {
+                    //未登录
+                    location.href = '/user/login.html?originUrl=' + encodeURIComponent(location.href);
+
+
+                } else {
+                    layer.alert(data.msg);
+                }
+
+            },
+            error: function () {
+                layer.alert('网络异常');
+            }
+        })
+
+    }
+
+    $.post("/book/addVisitCount", {"bookId": $("#bookIdHidden").val()}, function () {
+    });
+
+
+    function enterPreIndexPage(bookId, bookIndexId) {
+        if (bookIndexId != 0) {
+            window.location.href = '/book/' + bookId + '/' + bookIndexId + ".html";
+        } else {
+            window.location.href = '/book/indexList-' + bookId + '.html';
+        }
+
+    }
+
+    function enterNextIndexPage(bookId, bookIndexId) {
+        if (bookIndexId != 0) {
+            window.location.href = '/book/' + bookId + '/' + bookIndexId + ".html";
+        } else {
+            window.location.href = '/book/indexList-' + bookId + '.html';
+        }
+
+    }
+
+    console.log(speechSynthesis.getVoices());
+
+    $(window).on('beforeunload', function () {
+        if (speechSynthesis.speaking) {
+            speechSynthesis.cancel()
+        }
+    });
+
+    function speakChapter() {
+        console.log('speechSynthesis.paused', speechSynthesis.paused)
+        console.log('speechSynthesis.pending', speechSynthesis.pending)
+        console.log('speechSynthesis.speaking', speechSynthesis.speaking)
+        if (speechSynthesis.speaking && !speechSynthesis.paused) {
+            speechSynthesis.pause();
+            return;
+        }
+        if (speechSynthesis.speaking && speechSynthesis.paused) {
+            speechSynthesis.resume();
+        }
+        speak({
+            'text': $('#chaptercontent').text(),
+            'speechRate': 0.5,
+            'pitch': 1,
+            'lang': 'zh-CN'
+        }, function () {
+            console.log('语音播放结束');
+        }, function () {
+            console.log('语音开始播放');
+        });
+
+
+    }
+
+    /**
+     * @description 文字转语音方法
+     * @public
+     * @param { text, rate, lang, volume, pitch } object
+     * @param  text 要合成的文字内容，字符串
+     * @param  speechRate 读取文字的语速 0.1~10  正常1
+     * @param  lang 读取文字时的语言
+     * @param  volume  读取时声音的音量 0~1  正常1
+     * @param  voice  读取文字的语音服务
+     * @param  pitch  读取时声音的音高 0~2  正常1
+     * @returns SpeechSynthesisUtterance
+     */
+    function speak({text, speechRate, lang, volume, pitch, voice}, endEvent, startEvent) {
+        if (!window.SpeechSynthesisUtterance) {
+            console.warn('当前浏览器不支持文字转语音服务')
+            return;
+        }
+
+        if (!text) {
+            return;
+        }
+
+        const speechUtterance = new SpeechSynthesisUtterance();
+        speechUtterance.text = text;
+        speechUtterance.rate = speechRate || 1;
+        speechUtterance.lang = lang || 'zh-CN';
+        speechUtterance.volume = volume || 1;
+        speechUtterance.pitch = pitch || 1;
+        speechUtterance.voice = voice || null;
+        speechUtterance.onend = function () {
+            endEvent && endEvent();
+        };
+        speechUtterance.onstart = function () {
+            startEvent && startEvent();
+        };
+        speechSynthesis.speak(speechUtterance);
+
+        return speechUtterance;
+    }
+
+</script>
+
+
+</html>

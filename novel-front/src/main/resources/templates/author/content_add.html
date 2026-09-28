@@ -1,0 +1,367 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+        <title>作家管理系统-小说精品屋</title>
+        <link rel="stylesheet" href="/css/base.css?v=1"/>
+        <link rel="stylesheet" href="/css/user.css"/>
+        <style>
+            /* 编辑器容器样式 */
+            .editor-container {
+                margin: 10px 0px;
+                padding: 20px;
+                background: #fff;
+                border-radius: 8px;
+                box-shadow: 0 2px 12px 0 rgba(0, 0, 0, .1);
+            }
+
+            /* 文本域样式 */
+            #bookContent {
+                width: 93%;
+                height: 400px;
+                padding: 15px;
+                border: 1px solid #e6e6e6;
+                border-radius: 4px;
+                font-size: 14px;
+                line-height: 1.6;
+                resize: vertical;
+            }
+
+            /* 工具栏样式 */
+            .ai-toolbar {
+                margin-bottom: 15px;
+                display: flex;
+                gap: 10px; /* 按钮间距 */
+            }
+
+            /* 自定义链接按钮样式 */
+            .ai-link {
+                display: inline-block;
+                padding: 10px 20px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                color: #fff;
+                text-decoration: none;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                background: linear-gradient(135deg, #6a11cb, #2575fc);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+
+            /* 链接按钮悬停效果 */
+            .ai-link:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            }
+
+            /* 链接按钮点击效果 */
+            .ai-link:active {
+                transform: translateY(0);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+
+            /* 不同按钮的颜色 */
+            .ai-link.expand {
+                background: linear-gradient(135deg, #ff9a9e, #fad0c4);
+            }
+
+            .ai-link.condense {
+                background: linear-gradient(135deg, #a18cd1, #fbc2eb);
+            }
+
+            .ai-link.continue {
+                background: linear-gradient(135deg, #f6d365, #fda085);
+            }
+
+            .ai-link.polish {
+                background: linear-gradient(135deg, #ff6f61, #ffcc00);
+            }
+        </style>
+    </head>
+</head>
+<body class="">
+
+<div class="header">
+    <div class="mainNav" id="mainNav">
+        <div class="box_center cf"
+             style="text-align: center;height: 44px;line-height: 48px;color: #fff;font-size: 16px;">
+
+            小说精品屋作家管理
+
+        </div>
+    </div>
+</div>
+
+<div class="main box_center cf">
+    <div class="userBox cf">
+        <div class="my_l">
+
+            <ul class="log_list">
+                <li><a class="link_4 on" href="/author/index.html">小说管理</a></li>
+                <li><a class="link_2 " href="/author/author_income_detail.html">稿费收入</a></li>
+                <!--<li><a class="link_1 " href="/user/userinfo.html">批量小说爬取</a></li>
+<li><a class="link_4 " href="/user/favorites.html">单本小说爬取</a></li>-->
+            </ul>
+
+        </div>
+        <div class="my_r">
+            <div class="my_bookshelf">
+
+                <div class="userBox cf">
+                    <form method="post" action="./register.html" id="form2">
+                        <div class="user_l">
+                            <div></div>
+                            <h3>小说章节内容填写</h3>
+                            <ul class="log_list">
+                                <li><span id="LabErr"></span></li>
+                                <b>章节名：</b>
+                                <li><input type="text" id="bookIndex" name="bookIndex" class="s_input"></li>
+                                <b>章节内容：</b>
+                                <li id="contentLi" style="width: 500px">
+                                    <div class="editor-container">
+                                        <div class="ai-toolbar">
+                                            <a class="ai-link expand" data-type="stream/expand">AI扩写</a>
+                                            <a class="ai-link condense" data-type="stream/condense">AI缩写</a>
+                                            <a class="ai-link continue" data-type="stream/continue">AI续写</a>
+                                            <a class="ai-link polish" data-type="stream/polish">AI润色</a>
+                                        </div>
+                                        <textarea id="bookContent" name="bookContent"
+                                                  placeholder="请输入文本内容..."></textarea>
+                                    </div>
+
+                                    <b>是否收费：</b>
+                                <li><input type="radio" name="isVip" value="0" checked>免费
+                                    <input type="radio" name="isVip" value="1">收费
+                                </li>
+
+
+                                <li style="margin-top: 10px"><input type="button" onclick="addBookContent()"
+                                                                    name="btnRegister" value="提交"
+                                                                    id="btnRegister" class="btn_red">
+
+
+                                </li>
+                            </ul>
+                        </div>
+                    </form>
+                </div>
+                <!--<div id="divData" class="updateTable">
+                    <table cellpadding="0" cellspacing="0">
+                        <thead>
+                        <tr>
+
+                            <th class="name">
+                                爬虫源（已开启的爬虫源）
+                            </th>
+                            <th class="chapter">
+                                成功爬取数量（websocket实现）
+                            </th>
+                            <th class="time">
+                            目标爬取数量
+                            </th>
+                            <th class="goread">
+                                状态（正在运行，已停止）（一次只能运行一个爬虫源）
+                            </th>
+                            <th class="goread">
+                                操作（启动，停止）
+                            </th>
+                        </tr>
+                        </thead>
+                        <tbody id="bookShelfList">
+
+
+
+                        </tbody>
+                    </table>
+                    <div class="pageBox cf" id="shellPage">
+                    </div>
+                </div>-->
+            </div>
+        </div>
+    </div>
+</div>
+
+
+</body>
+<script src="/javascript/jquery-1.8.0.min.js" type="text/javascript"></script>
+<script src="/layui/layui.all.js" type="text/javascript"></script>
+<script src="/javascript/header.js" type="text/javascript"></script>
+<script src="/javascript/user.js" type="text/javascript"></script>
+<script src="/javascript/common.js" type="text/javascript"></script>
+
+<script language="javascript" type="text/javascript">
+
+
+    var lock = false;
+
+    function addBookContent() {
+
+        if (lock) {
+            return;
+        }
+        lock = true;
+
+
+        var bookId = getSearchString("bookId");
+
+
+        var indexName = $("#bookIndex").val();
+        if (!indexName) {
+            $("#LabErr").html("章节名不能为空！");
+            lock = false;
+            return;
+        }
+
+        var content = $("#bookContent").val();
+        if (!content) {
+            $("#LabErr").html("章节内容不能为空！");
+            lock = false;
+            return;
+        }
+
+
+        var isVip = $("input:checked[name=isVip]").val();
+
+
+        $.ajax({
+            type: "POST",
+            url: "/author/addBookContent",
+            data: {'bookId': bookId, 'indexName': indexName, 'content': content, 'isVip': isVip},
+            dataType: "json",
+            success: function (data) {
+                if (data.code == 200) {
+
+                    window.location.href = '/author/index_list.html?bookId=' + bookId;
+
+
+                } else {
+                    lock = false;
+                    $("#LabErr").html(data.msg);
+                }
+
+            },
+            error: function () {
+                lock = false;
+                layer.alert('网络异常');
+            }
+        })
+
+    }
+
+
+    // 打字机效果函数
+    function typeWriter(textarea, text, speed = 50) {
+        let i = 0;
+        const timer = setInterval(() => {
+            if (i < text.length) {
+                textarea.val(textarea.val() + text.charAt(i));
+                i++;
+                // 滚动到底部
+                textarea.scrollTop(textarea[0].scrollHeight);
+            } else {
+                clearInterval(timer);
+            }
+        }, speed);
+    }
+
+    $('.ai-toolbar .ai-link').click(function (e) {
+        e.preventDefault(); // 阻止默认链接行为
+        const type = $(this).data('type');
+        const textarea = $('#bookContent');
+        const selectedText = textarea.val().substring(textarea[0].selectionStart, textarea[0].selectionEnd);
+
+        // 检查是否选中文本
+        if (!selectedText) {
+            layer.msg('请先选中要处理的文本');
+            return;
+        }
+
+        const loading = layer.load(1, {shade: 0.3});
+
+        // 参数配置
+        let params = {text: selectedText};
+        if (type === 'stream/expand' || type === 'stream/condense') {
+            layer.prompt({
+                title: '请输入比例',
+                value: 2,
+                btn: ['确定', '取消'],
+                btn2: function () {
+                    layer.close(loading);
+                },
+                cancel: function () {
+                    layer.close(loading);
+                }
+            }, function (value, index) {
+                if (isNaN(Number(value)) || isNaN(parseFloat(value))) {
+                    layer.msg('请输入正确的比例');
+                    return;
+                }
+                if (type === 'stream/expand' && value <= 1) {
+                    layer.msg('请输入正确的比例');
+                    return;
+                }
+                if (type === 'stream/condense' && (value <= 0 || value >= 1)) {
+                    layer.msg('请输入正确的比例');
+                    return;
+                }
+                params.ratio = parseFloat(value) * 100;
+                layer.close(index);
+                sendRequest(type, params, loading, textarea);
+            });
+            return;
+        } else if (type === 'stream/continue') {
+            layer.prompt({
+                title: '请输入续写长度（字数）',
+                value: 200,
+                btn: ['确定', '取消'],
+                btn2: function () {
+                    layer.close(loading);
+                },
+                cancel: function () {
+                    layer.close(loading);
+                }
+            }, function (value, index) {
+                if (!Number.isInteger(Number(value)) || value <= 0) {
+                    layer.msg('请输入正确的长度');
+                    return;
+                }
+                params.length = parseInt(value);
+                layer.close(index);
+                sendRequest(type, params, loading, textarea);
+            });
+            return;
+        }
+
+        sendRequest(type, params, loading, textarea);
+    });
+
+    function sendRequest(type, params, loading, textarea) {
+        const url = `/author/ai/${type}?text=${encodeURIComponent(params.text)}&ratio=${params.ratio}&length=${params.length}`;
+        const eventSource = new EventSource(url);
+
+        // 监听消息事件
+        eventSource.onmessage = function (event) {
+            layer.close(loading);
+            const data = event.data;
+            console.log('Received data:', data);
+
+            textarea.val(textarea.val() + data);
+            // 滚动到底部
+            textarea.scrollTop(textarea[0].scrollHeight);
+        };
+
+        // 监听错误事件
+        eventSource.onerror = function (error) {
+            layer.close(loading);
+            console.error('EventSource failed:', error);
+            eventSource.close(); // 关闭连接
+        };
+
+    }
+
+</script>
+</html>

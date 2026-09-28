@@ -1,0 +1,68 @@
+#端口号
+server:
+  port: 8081
+  servlet:
+    session:
+      timeout: 1D
+
+spring:
+  profiles:
+    active: dev
+
+#登录用户名密码
+admin:
+  username: admin
+  password: admin
+
+
+
+crawl:
+  update:
+    #爬虫自动更新的线程数
+    #建议小说数量不多或者正在运行新书入库爬虫的情况下设置为1即可
+    #随着小说数量的增多可以逐渐增加，但建议不要超出CPU的线程数
+    thread: 1
+  # 采集间隔时间，单位：毫秒
+  interval:
+    min: 300
+    max: 500
+
+
+---
+
+#邮箱服务器
+spring:
+  mail:
+    host: smtp.163.com
+    #发件人昵称
+    nickname: novel-plus
+    #邮箱账户
+    username: xxyopen@163.com
+    #邮箱第三方授权码
+    password: novel123456
+    #编码类型
+    default-encoding: UTF-8
+    port: 465
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: rue
+          socketFactory:
+            port: 465
+            class: javax.net.ssl.SSLSocketFactory
+            fallback: false
+
+# 磁盘监控配置
+disk-monitor:
+  enabled: false
+  interval-minutes: 5
+  warning-threshold: 85.0
+  severe-threshold: 90.0
+  critical-threshold: 95.0
+  # 告警邮件接收人列表（支持多个邮箱）
+  recipients: xxyopen@foxmail.com,12345678@qq.com
+
+

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; background: #f4f6f9; }
+        .container { max-width: 800px; margin: 20px auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { padding: 15px; border-radius: 6px; text-align: center; color: white; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th { background: #1976d2; color: white; padding: 12px; text-align: center; }
+        td { padding: 10px; border: 1px solid #ddd; text-align: center; }
+        .action { margin: 20px 0; font-size: 16px; line-height: 1.6; }
+        .footer { margin-top: 30px; font-size: 12px; color: #777; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header" th:style="'background:' + ${levelColor}">
+        <h2 th:text="${icon} + ' ' + ${alertLevel} + ' 告警：磁盘使用率过高'"></h2>
+    </div>
+
+    <p><strong>时间：</strong><span th:text="${#dates.format(#dates.createNow(), 'yyyy-MM-dd HH:mm:ss')}"></span></p>
+
+    <div class="action" th:utext="${actionText}"></div>
+
+    <h3>📊 磁盘使用详情</h3>
+    <table>
+        <tr style="background:#1976d2; color:white;">
+            <th>磁盘路径</th><th>总空间 (GB)</th><th>空闲空间 (GB)</th><th>使用率</th>
+        </tr>
+        <tr th:each="disk : ${diskInfos}" th:style="'background-color:#f9f9f9;'">
+            <td th:text="${disk.path}"></td>
+            <td th:text="${#numbers.formatDecimal(disk.totalGB, 2, 2)}"></td>
+            <td th:text="${#numbers.formatDecimal(disk.freeGB, 2, 2)}"></td>
+            <td th:text="${#numbers.formatDecimal(disk.usage, 2, 2)} + '%'"
+                th:style="'color:' + ${disk.usage >= 95 ? '#d32f2f' : (disk.usage >= 90 ? '#f57c00' : '#388e3c')} + '; font-weight:bold;'">
+            </td>
+        </tr>
+    </table>
+
+    <div class="footer">此邮件由磁盘监控系统自动发送，请及时处理。</div>
+</div>
+</body>
+</html>
