@@ -8,6 +8,7 @@ import com.java2nb.novel.entity.*;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * @author 11797
@@ -77,6 +78,9 @@ public interface BookService {
      * @return 目录信息
      * */
     BookIndex queryBookIndex(Long bookIndexId);
+
+    /** Returns empty when the chapter does not belong to the requested book. */
+    Optional<BookIndex> findBookIndex(Long bookId, Long bookIndexId);
 
     /**
      * 查询上一章节目录ID

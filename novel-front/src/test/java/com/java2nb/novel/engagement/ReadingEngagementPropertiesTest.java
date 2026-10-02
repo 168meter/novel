@@ -11,6 +11,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReadingEngagementPropertiesTest {
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {9, 30})
+    void rejectsNonProtocolCreditAtStartup(int seconds) {
+        configuredContext.withPropertyValues("novel.reading-engagement.credited-seconds=" + seconds)
+            .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void acceptsExplicitTenAtStartup() {
+        configuredContext.withPropertyValues("novel.reading-engagement.credited-seconds=10")
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                assertThat(context.getBean(ReadingEngagementProperties.class).creditedSeconds()).isEqualTo(10);
+            });
+    }
+
     private final ApplicationContextRunner configuredContext = new ApplicationContextRunner()
         .withUserConfiguration(ReadingEngagementConfig.class)
         .withPropertyValues("novel.reading-engagement.ip-hmac-secret=test-secret");

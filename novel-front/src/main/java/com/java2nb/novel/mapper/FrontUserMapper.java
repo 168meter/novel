@@ -42,5 +42,7 @@ public interface FrontUserMapper extends UserMapper {
 
     void addUserBalance(@Param("userId") Long userId, @Param("amount") Integer amount);
 
+    int deductUserBalance(@Param("userId") Long userId, @Param("amount") Integer amount);
+
 
 }

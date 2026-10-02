@@ -16,9 +16,13 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Controller;
+import org.springframework.http.HttpStatus;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.ModelAndView;
 
 import java.util.List;
 import java.util.Map;
@@ -239,8 +243,11 @@ public class PageController extends BaseController {
         HttpServletRequest request, Model model) {
         // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
         CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
+            BookIndex bookIndex = bookService.findBookIndex(bookId, bookIndexId).orElse(null);
+            if (bookIndex == null) {
+                return null;
+            }
             Book book = bookService.queryBookDetail(bookId);
-            BookIndex bookIndex = bookService.queryBookIndex(bookIndexId);
 
             BookIndexNavigationVO navigation =
                 bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
@@ -263,6 +270,9 @@ public class PageController extends BaseController {
         }, threadPoolExecutor);
 
         ChapterPageData chapterPageData = chapterPageDataCompletableFuture.get();
+        if (chapterPageData == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chapter not found in requested book");
+        }
         model.addAttribute("book", chapterPageData.book());
         model.addAttribute("bookIndex", chapterPageData.bookIndex());
         model.addAttribute("preBookIndexId", chapterPageData.preBookIndexId());
@@ -280,6 +290,11 @@ public class PageController extends BaseController {
 
     private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
                                    BookContent bookContent, boolean needBuy) {
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ModelAndView chapterNotFound(ResponseStatusException exception) {
+        return new ModelAndView("404", exception.getStatusCode());
     }
 
     /**

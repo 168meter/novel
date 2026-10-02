@@ -267,6 +267,17 @@ public class BookServiceImpl implements BookService {
     }
 
     @Override
+    public Optional<BookIndex> findBookIndex(Long bookId, Long bookIndexId) {
+        SelectStatementProvider statement = select(bookIndex.allColumns())
+            .from(bookIndex)
+            .where(BookIndexDynamicSqlSupport.id, isEqualTo(bookIndexId))
+            .and(BookIndexDynamicSqlSupport.bookId, isEqualTo(bookId))
+            .limit(1)
+            .build().render(RenderingStrategies.MYBATIS3);
+        return bookIndexMapper.selectMany(statement).stream().findFirst();
+    }
+
+    @Override
     public Long queryPreBookIndexId(Long bookId, Integer indexNum) {
         SelectStatementProvider selectStatement = select(BookIndexDynamicSqlSupport.id)
             .from(bookIndex)

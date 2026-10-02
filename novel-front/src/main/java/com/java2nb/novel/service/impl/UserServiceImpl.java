@@ -196,24 +196,18 @@ public class UserServiceImpl implements UserService {
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void buyBookIndex(Long userId, UserBuyRecord buyRecord) {
-        //查询用户余额
-        long balance = userInfo(userId).getAccountBalance();
-        if (balance < buyRecord.getBuyAmount()) {
-            //余额不足
-            throw new BusinessException(ResponseStatus.USER_NO_BALANCE);
+        if (buyRecord.getBuyAmount() == null || buyRecord.getBuyAmount() < 0) {
+            throw new BusinessException(ResponseStatus.AUTH_INVALID_REQUEST);
         }
         buyRecord.setUserId(userId);
         buyRecord.setCreateTime(new Date());
         //生成购买记录
         userBuyRecordMapper.insertSelective(buyRecord);
 
-        //减少用户余额
-        userMapper.update(update(user)
-            .set(UserDynamicSqlSupport.accountBalance)
-            .equalTo(balance - buyRecord.getBuyAmount())
-            .where(id, isEqualTo(userId))
-            .build()
-            .render(RenderingStrategies.MYBATIS3));
+        // The unique purchase key rejects duplicates before debit. A failed debit rolls back the insert.
+        if (userMapper.deductUserBalance(userId, buyRecord.getBuyAmount()) != 1) {
+            throw new BusinessException(ResponseStatus.USER_NO_BALANCE);
+        }
     }
 
     @Override

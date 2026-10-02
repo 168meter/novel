@@ -153,12 +153,38 @@ function logout() {
 }
 
 
+// Only safe legacy numbers can be migrated. Unsafe numbers have already lost the original ID.
+function readHistoryBookIds(raw) {
+    var parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (invalidHistory) {
+        return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    var ids = parsed.map(function (id) {
+        if (typeof id === 'number') {
+            return Number.isSafeInteger(id) && id > 0 ? String(id) : null;
+        }
+        return typeof id === 'string' && /^[1-9]\d*$/.test(id) ? id : null;
+    }).filter(function (id) { return id !== null; });
+    return Array.from(new Set(ids)).slice(-50);
+}
+
+function rememberHistoryBook(raw, bookId) {
+    var ids = readHistoryBookIds(raw);
+    if (typeof bookId !== 'string' || !/^[1-9]\d*$/.test(bookId)) return ids;
+    return ids.filter(function (id) { return id !== bookId; }).concat(bookId).slice(-50);
+}
+
 function readHistory() {
 
     var books = localStorage.getItem("historyBooks");
     var bookIds = "-1929";
     if (books) {
-        bookIds = JSON.parse(localStorage.getItem("historyBooks")).join(",");
+        var ids = readHistoryBookIds(books);
+        localStorage.setItem("historyBooks", JSON.stringify(ids));
+        bookIds = ids.length ? ids.join(",") : "-1929";
     }
     window.location.href = "/book/search?historyBookIds=" + bookIds;
 };
