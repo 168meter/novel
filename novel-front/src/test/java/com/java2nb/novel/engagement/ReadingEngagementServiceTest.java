@@ -78,6 +78,7 @@ class ReadingEngagementServiceTest {
         verify(publisher).publish(42L, 7L, 10, FIXED_INSTANT, SHANGHAI_STAT_DATE);
         assertThat(heartbeatCount(ReadingHeartbeatOutcome.ACCEPTED)).isEqualTo(1.0);
         assertThat(meterRegistry.counter("novel.reading.credited.seconds").count()).isEqualTo(10.0);
+        assertThat(meterRegistry.counter("novel.reading.heartbeat.accepted.seconds").count()).isEqualTo(10.0);
     }
 
     @ParameterizedTest
@@ -99,6 +100,7 @@ class ReadingEngagementServiceTest {
             org.mockito.ArgumentMatchers.any());
         assertThat(heartbeatCount(outcome)).isEqualTo(1.0);
         assertThat(meterRegistry.counter("novel.reading.credited.seconds").count()).isZero();
+        assertThat(meterRegistry.counter("novel.reading.heartbeat.accepted.seconds").count()).isZero();
     }
 
     @ParameterizedTest

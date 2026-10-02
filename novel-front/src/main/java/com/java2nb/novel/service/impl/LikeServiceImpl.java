@@ -6,10 +6,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.dao.DataAccessException;
 import org.springframework.scripting.support.StaticScriptSource;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /**
  * @author xiongxiaoyang
@@ -20,9 +23,13 @@ import java.util.Collections;
 @Slf4j
 public class LikeServiceImpl implements LikeService {
 
+    private static final long READ_FAILURE_LOG_INTERVAL = 1000L;
+
     private final StringRedisTemplate redisTemplate;
 
     private DefaultRedisScript<Long> toggleLikeScript;
+
+    private final AtomicLong displayReadFailures = new AtomicLong();
 
     private static final String COMMENT_LIKE_KEY_PREFIX = "like:comment:";
     private static final String COMMENT_REPLY_LIKE_KEY_PREFIX = "like:comment:reply:";
@@ -62,12 +69,12 @@ public class LikeServiceImpl implements LikeService {
     }
 
     public Long getCommentLikesCount(Long commentId) {
-        return redisTemplate.opsForSet().size(COMMENT_LIKE_KEY_PREFIX + commentId);
+        return readDisplayCount(() -> redisTemplate.opsForSet().size(COMMENT_LIKE_KEY_PREFIX + commentId));
     }
 
     @Override
     public Long getCommentUnLikesCount(Long commentId) {
-        return redisTemplate.opsForSet().size(COMMENT_UN_LIKE_KEY_PREFIX + commentId);
+        return readDisplayCount(() -> redisTemplate.opsForSet().size(COMMENT_UN_LIKE_KEY_PREFIX + commentId));
     }
 
     public Long toggleReplyLike(Long replyId, Long userId) {
@@ -80,12 +87,25 @@ public class LikeServiceImpl implements LikeService {
     }
 
     public Long getReplyLikesCount(Long replyId) {
-        return redisTemplate.opsForSet().size(COMMENT_REPLY_LIKE_KEY_PREFIX + replyId);
+        return readDisplayCount(() -> redisTemplate.opsForSet().size(COMMENT_REPLY_LIKE_KEY_PREFIX + replyId));
     }
 
     @Override
     public Long getReplyUnLikesCount(Long replyId) {
-        return redisTemplate.opsForSet().size(COMMENT_REPLY_UN_LIKE_KEY_PREFIX + replyId);
+        return readDisplayCount(() -> redisTemplate.opsForSet().size(COMMENT_REPLY_UN_LIKE_KEY_PREFIX + replyId));
+    }
+
+    private Long readDisplayCount(Supplier<Long> countLoader) {
+        try {
+            Long count = countLoader.get();
+            return count == null ? 0L : count;
+        } catch (DataAccessException unavailable) {
+            long failures = displayReadFailures.incrementAndGet();
+            if (failures == 1L || failures % READ_FAILURE_LOG_INTERVAL == 0L) {
+                log.warn("Comment reaction display cache read failures={}; using zero counts", failures);
+            }
+            return 0L;
+        }
     }
 
     private Long executeToggle(String key, Long userId) {

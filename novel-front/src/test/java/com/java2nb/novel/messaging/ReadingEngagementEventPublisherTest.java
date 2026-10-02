@@ -61,6 +61,12 @@ class ReadingEngagementEventPublisherTest {
         assertThat(event.occurredAt()).isEqualTo(Instant.parse("2026-09-10T00:00:00Z"));
         assertThat(event.statDate()).isEqualTo(LocalDate.of(2026, 9, 10));
         assertThat(registry.counter("novel.reading.kafka.send", "result", "success").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submitted").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submit.attempted").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.producer.send", "result", "success").count())
+            .isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.producer.send", "result", "failed").count())
+            .isZero();
     }
 
     @Test
@@ -73,6 +79,10 @@ class ReadingEngagementEventPublisherTest {
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submitted").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submit.attempted").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.producer.send", "result", "failed").count())
+            .isEqualTo(1);
     }
 
     @Test
@@ -85,6 +95,10 @@ class ReadingEngagementEventPublisherTest {
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submit.attempted").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submitted").count()).isZero();
+        assertThat(registry.counter("novel.reading.kafka.producer.send", "result", "failed").count())
+            .isEqualTo(1);
     }
 
     @Test
@@ -106,6 +120,10 @@ class ReadingEngagementEventPublisherTest {
             .doesNotThrowAnyException();
 
         assertThat(registry.counter("novel.reading.kafka.send", "result", "failed").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.reading.kafka.submitted").count()).isZero();
+        assertThat(registry.counter("novel.reading.kafka.submit.attempted").count()).isZero();
+        assertThat(registry.counter("novel.reading.kafka.producer.send", "result", "failed").count())
+            .isZero();
     }
 
     @Test

@@ -223,12 +223,18 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public Book queryBookDetail(Long bookId) {
+        return findBook(bookId).orElseThrow(() -> new NoSuchElementException("Book not found"));
+    }
+
+    @Override
+    public Optional<Book> findBook(Long bookId) {
         SelectStatementProvider selectStatement = select(book.allColumns())
             .from(book)
             .where(id, isEqualTo(bookId))
+            .limit(1)
             .build()
             .render(RenderingStrategies.MYBATIS3);
-        return bookMapper.selectMany(selectStatement).get(0);
+        return bookMapper.selectMany(selectStatement).stream().findFirst();
     }
 
     @Override

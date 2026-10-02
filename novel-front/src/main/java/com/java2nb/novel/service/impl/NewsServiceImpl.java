@@ -12,11 +12,14 @@ import com.java2nb.novel.mapper.NewsMapper;
 import com.java2nb.novel.vo.NewsVO;
 import io.github.xxyopen.model.page.builder.pagehelper.PageBuilder;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.mybatis.dynamic.sql.render.RenderingStrategies;
 import org.mybatis.dynamic.sql.select.render.SelectStatementProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataAccessException;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static com.java2nb.novel.mapper.NewsDynamicSqlSupport.*;
 import static org.mybatis.dynamic.sql.SqlBuilder.isEqualTo;
@@ -27,16 +30,27 @@ import static org.mybatis.dynamic.sql.select.SelectDSL.select;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class NewsServiceImpl implements NewsService {
+
+    private static final long CACHE_FAILURE_LOG_INTERVAL = 1000L;
 
     private final FrontNewsMapper newsMapper;
 
     private final CacheService cacheService;
 
+    private final AtomicLong cacheReadFailures = new AtomicLong();
+    private final AtomicLong cacheWriteFailures = new AtomicLong();
+
 
     @Override
     public List<News> listIndexNews() {
-        List<News> result = cacheService.getList(CacheKey.INDEX_NEWS_KEY, News.class);
+        List<News> result = null;
+        try {
+            result = cacheService.getList(CacheKey.INDEX_NEWS_KEY, News.class);
+        } catch (DataAccessException unavailable) {
+            recordCacheFailure(cacheReadFailures, "read");
+        }
         if (result == null || result.isEmpty()) {
             SelectStatementProvider selectStatement = select(id, catName, catId, title, createTime)
                 .from(news)
@@ -45,9 +59,20 @@ public class NewsServiceImpl implements NewsService {
                 .build()
                 .render(RenderingStrategies.MYBATIS3);
             result = newsMapper.selectMany(selectStatement);
-            cacheService.setObject(CacheKey.INDEX_NEWS_KEY, result, 60 * 60 * 12);
+            try {
+                cacheService.setObject(CacheKey.INDEX_NEWS_KEY, result, 60 * 60 * 12);
+            } catch (DataAccessException unavailable) {
+                recordCacheFailure(cacheWriteFailures, "write");
+            }
         }
         return result;
+    }
+
+    private void recordCacheFailure(AtomicLong counter, String operation) {
+        long failures = counter.incrementAndGet();
+        if (failures == 1L || failures % CACHE_FAILURE_LOG_INTERVAL == 0L) {
+            log.warn("Index news cache {} failures={}; serving database data", operation, failures);
+        }
     }
 
     @Override

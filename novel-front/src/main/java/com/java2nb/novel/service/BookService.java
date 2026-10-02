@@ -61,6 +61,9 @@ public interface BookService {
      * @param id 书籍ID*/
     Book queryBookDetail(Long id);
 
+    /** Returns empty when the requested book does not exist. */
+    Optional<Book> findBook(Long id);
+
     /**
      * 查询目录列表
      * @param bookId 书籍ID

@@ -184,7 +184,7 @@ public class PageController extends BaseController {
         //加载小说基本信息线程
         CompletableFuture<Book> bookCompletableFuture = CompletableFuture.supplyAsync(() -> {
             //查询书籍
-            Book book = bookService.queryBookDetail(bookId);
+            Book book = bookService.findBook(bookId).orElse(null);
             log.debug("加载小说基本信息线程结束");
             return book;
         }, threadPoolExecutor);
@@ -197,6 +197,9 @@ public class PageController extends BaseController {
             }, threadPoolExecutor);
         //加载小说首章信息线程，该线程在加载小说基本信息线程执行完毕后才执行
         CompletableFuture<Long> firstBookIndexIdCompletableFuture = bookCompletableFuture.thenApplyAsync((book) -> {
+            if (book == null) {
+                return null;
+            }
             if (book.getLastIndexId() != null) {
                 //查询首章目录ID
                 Long firstBookIndexId = bookService.queryFirstBookIndexId(bookId);
@@ -207,12 +210,19 @@ public class PageController extends BaseController {
         }, threadPoolExecutor);
         //加载随机推荐小说线程，该线程在加载小说基本信息线程执行完毕后才执行
         CompletableFuture<List<Book>> recBookCompletableFuture = bookCompletableFuture.thenApplyAsync((book) -> {
+            if (book == null) {
+                return List.of();
+            }
             List<Book> books = bookService.listRecBookByCatId(book.getCatId());
             log.debug("加载随机推荐小说线程结束");
             return books;
         }, threadPoolExecutor);
 
-        model.addAttribute("book", bookCompletableFuture.get());
+        Book book = bookCompletableFuture.get();
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
+        model.addAttribute("book", book);
         model.addAttribute("firstBookIndexId", firstBookIndexIdCompletableFuture.get());
         model.addAttribute("recBooks", recBookCompletableFuture.get());
         model.addAttribute("bookCommentPageBean", bookCommentPageBeanCompletableFuture.get());
@@ -226,7 +236,10 @@ public class PageController extends BaseController {
     @SneakyThrows
     @RequestMapping("/book/indexList-{bookId}.html")
     public String indexList(@PathVariable("bookId") Long bookId, Model model) {
-        Book book = bookService.queryBookDetail(bookId);
+        Book book = bookService.findBook(bookId).orElse(null);
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
         model.addAttribute("book", book);
         List<BookIndex> bookIndexList = bookService.queryIndexList(bookId, null, 1, null);
         model.addAttribute("bookIndexList", bookIndexList);
@@ -242,17 +255,31 @@ public class PageController extends BaseController {
     public String bookContent(@PathVariable("bookId") Long bookId, @PathVariable("bookIndexId") Long bookIndexId,
         HttpServletRequest request, Model model) {
         // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
-        CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<ChapterPageResult> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
             BookIndex bookIndex = bookService.findBookIndex(bookId, bookIndexId).orElse(null);
             if (bookIndex == null) {
-                return null;
+                return ChapterPageResult.failure(ChapterPageFailure.CHAPTER_NOT_FOUND);
             }
-            Book book = bookService.queryBookDetail(bookId);
+            Book book = bookService.findBook(bookId).orElse(null);
+            if (book == null) {
+                return ChapterPageResult.failure(ChapterPageFailure.BOOK_NOT_FOUND);
+            }
+
+            String storageType = bookIndex.getStorageType();
+            if (!("db".equals(storageType) || "txt".equals(storageType))) {
+                return ChapterPageResult.failure(ChapterPageFailure.INVALID_STORAGE_TYPE);
+            }
+            BookContentService bookContentService = bookContentServiceMap.get(storageType);
+            if (bookContentService == null) {
+                return ChapterPageResult.failure(ChapterPageFailure.INVALID_STORAGE_TYPE);
+            }
+            BookContent bookContent = bookContentService.queryBookContent(bookId, bookIndexId);
+            if (bookContent == null || StringUtils.isBlank(bookContent.getContent())) {
+                return ChapterPageResult.failure(ChapterPageFailure.CONTENT_NOT_FOUND);
+            }
 
             BookIndexNavigationVO navigation =
                 bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
-            BookContent bookContent = bookContentServiceMap.get(bookIndex.getStorageType())
-                .queryBookContent(bookId, bookIndexId);
 
             boolean needBuy = false;
             if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
@@ -265,14 +292,15 @@ public class PageController extends BaseController {
             }
 
             log.debug("加载章节页面数据线程结束");
-            return new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
-                navigation.getNextBookIndexId(), bookContent, needBuy);
+            return ChapterPageResult.success(new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
+                navigation.getNextBookIndexId(), bookContent, needBuy));
         }, threadPoolExecutor);
 
-        ChapterPageData chapterPageData = chapterPageDataCompletableFuture.get();
-        if (chapterPageData == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Chapter not found in requested book");
+        ChapterPageResult chapterPageResult = chapterPageDataCompletableFuture.get();
+        if (chapterPageResult.failure() != null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, chapterPageResult.failure().message());
         }
+        ChapterPageData chapterPageData = chapterPageResult.data();
         model.addAttribute("book", chapterPageData.book());
         model.addAttribute("bookIndex", chapterPageData.bookIndex());
         model.addAttribute("preBookIndexId", chapterPageData.preBookIndexId());
@@ -280,7 +308,7 @@ public class PageController extends BaseController {
         model.addAttribute("bookContent", chapterPageData.bookContent());
         model.addAttribute("needBuy", chapterPageData.needBuy());
 
-        if (!chapterPageData.needBuy() && chapterPageData.bookContent() != null) {
+        if (!chapterPageData.needBuy()) {
             readingPageVisitRegistrar.register(ThreadLocalUtil.getClientId(), bookId, bookIndexId)
                 .ifPresent(pageVisitId -> model.addAttribute("readingPageVisitId", pageVisitId));
         }
@@ -290,6 +318,33 @@ public class PageController extends BaseController {
 
     private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
                                    BookContent bookContent, boolean needBuy) {
+    }
+
+    private record ChapterPageResult(ChapterPageData data, ChapterPageFailure failure) {
+        private static ChapterPageResult success(ChapterPageData data) {
+            return new ChapterPageResult(data, null);
+        }
+
+        private static ChapterPageResult failure(ChapterPageFailure failure) {
+            return new ChapterPageResult(null, failure);
+        }
+    }
+
+    private enum ChapterPageFailure {
+        BOOK_NOT_FOUND("Book not found"),
+        CHAPTER_NOT_FOUND("Chapter not found in requested book"),
+        INVALID_STORAGE_TYPE("Chapter storage type is unsupported"),
+        CONTENT_NOT_FOUND("Chapter content is unavailable");
+
+        private final String message;
+
+        ChapterPageFailure(String message) {
+            this.message = message;
+        }
+
+        private String message() {
+            return message;
+        }
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -303,7 +358,10 @@ public class PageController extends BaseController {
     @RequestMapping("/book/comment-{bookId}.html")
     public String commentList(@PathVariable("bookId") Long bookId, Model model) {
         //查询书籍
-        Book book = bookService.queryBookDetail(bookId);
+        Book book = bookService.findBook(bookId).orElse(null);
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
         model.addAttribute("book", book);
         return "book/book_comment";
     }
