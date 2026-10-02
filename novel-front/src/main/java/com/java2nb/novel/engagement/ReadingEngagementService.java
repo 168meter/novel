@@ -61,8 +61,7 @@ public class ReadingEngagementService {
             request.sequence(),
             sessionHash,
             ipHmac,
-            statDate,
-            now.toEpochMilli());
+            statDate);
 
         ReadingHeartbeatOutcome outcome = recordOutcome(heartbeatGate.evaluate(command));
         if (outcome == ReadingHeartbeatOutcome.ACCEPTED) {

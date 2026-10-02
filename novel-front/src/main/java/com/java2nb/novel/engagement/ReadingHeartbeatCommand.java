@@ -9,7 +9,6 @@ public record ReadingHeartbeatCommand(
     long sequence,
     String sessionHash,
     String ipHmac,
-    LocalDate statDate,
-    long nowEpochMillis
+    LocalDate statDate
 ) {
 }

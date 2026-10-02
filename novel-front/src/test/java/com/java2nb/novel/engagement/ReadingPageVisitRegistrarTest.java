@@ -51,7 +51,8 @@ class ReadingPageVisitRegistrarTest {
         assertThat(keysCaptor.getValue()).containsExactly("reading:page:{" + pageVisitId.orElseThrow() + "}");
         assertThat(argumentCaptor.getAllValues()).containsExactly(
             "17c041e3cfda08cd1b9972637dfe6f2fabb0f674fd7d7c55439635e6925bb13c", "1", "100", "7200");
-        assertThat(scriptCaptor.getValue().getScriptAsString()).contains("redis.call('HSET', KEYS[1]");
+        assertThat(scriptCaptor.getValue().getScriptAsString())
+            .contains("redis.call('TIME')", "redis.call('HSET', KEYS[1]", "'createdAtMillis', now");
         assertThat(meterRegistry.counter("novel.reading.page.registration", "result", "success").count()).isEqualTo(1);
     }
 

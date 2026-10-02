@@ -26,7 +26,7 @@ class ReadingHeartbeatGateTest {
     private static final ReadingHeartbeatCommand COMMAND = new ReadingHeartbeatCommand(
         42L, 99L, "abc123", 7L,
         "session-hash", "ip-hmac",
-        LocalDate.of(2026, 9, 10), 1_789_000_000_000L);
+        LocalDate.of(2026, 9, 10));
 
     private StringRedisTemplate redisTemplate;
     private SimpleMeterRegistry meterRegistry;
@@ -57,7 +57,8 @@ class ReadingHeartbeatGateTest {
             Arguments.of(3L, ReadingHeartbeatOutcome.INVALID_PAGE),
             Arguments.of(4L, ReadingHeartbeatOutcome.SESSION_RATE_LIMITED),
             Arguments.of(5L, ReadingHeartbeatOutcome.IP_RATE_LIMITED),
-            Arguments.of(6L, ReadingHeartbeatOutcome.DAILY_CAP_REACHED));
+            Arguments.of(6L, ReadingHeartbeatOutcome.DAILY_CAP_REACHED),
+            Arguments.of(7L, ReadingHeartbeatOutcome.TOO_EARLY));
     }
 
     @Test
@@ -73,16 +74,17 @@ class ReadingHeartbeatGateTest {
             argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(),
             argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(),
             argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(), argumentCaptor.capture(),
-            argumentCaptor.capture());
+            argumentCaptor.capture(), argumentCaptor.capture());
         assertThat(scriptCaptor.getValue()).isSameAs(ReadingHeartbeatGate.GATE_SCRIPT);
         assertThat(keysCaptor.getValue()).containsExactly(
             "reading:page:{abc123}",
+            "reading:time:session:session-hash",
             "reading:rate:session:session-hash",
             "reading:rate:ip:ip-hmac",
             "reading:credit:2026-09-10:session-hash:42:99");
         assertThat(argumentCaptor.getAllValues()).containsExactly(
-            "session-hash", "42", "99", "7", "1789000000000", "1788999940000", "8", "120", "1800",
-            "10", "120", "172800", "abc123:7");
+            "session-hash", "42", "99", "7", "10000", "60000", "8", "120", "1800",
+            "10", "120", "172800", "7200", "abc123:7");
     }
 
     @Test
@@ -102,22 +104,24 @@ class ReadingHeartbeatGateTest {
     @Test
     void luaContractKeepsValidationRateLimitsAndCreditMutationAtomic() {
         assertThat(ReadingHeartbeatGate.GATE_SCRIPT.getScriptAsString())
-            .contains("HGET", "ZREMRANGEBYSCORE", "ZCARD", "ZADD", "lastSequence",
+            .contains("redis.call('TIME')", "createdAtMillis", "lastCreditedAtMillis", "HGET",
+                "ZREMRANGEBYSCORE", "ZCARD", "ZADD", "lastSequence",
                 "credited + creditSeconds > tonumber(ARGV[9])",
-                "redis.call('SET', KEYS[4], credited + creditSeconds, 'EX', tonumber(ARGV[12]))");
+                "redis.call('SET', KEYS[2], now, 'EX', tonumber(ARGV[13]))",
+                "redis.call('SET', KEYS[5], credited + creditSeconds, 'EX', tonumber(ARGV[12]))");
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void stubRedisResult(Long result) {
         when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(),
-            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenReturn(result);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void stubRedisFailure(RuntimeException exception) {
         when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(),
-            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenThrow(exception);
     }
 }

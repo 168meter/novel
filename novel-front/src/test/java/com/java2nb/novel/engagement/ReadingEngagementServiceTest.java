@@ -74,8 +74,7 @@ class ReadingEngagementServiceTest {
             3L,
             "session-hash",
             "ip-hmac",
-            SHANGHAI_STAT_DATE,
-            1_789_057_800_000L));
+            SHANGHAI_STAT_DATE));
         verify(publisher).publish(42L, 7L, 10, FIXED_INSTANT, SHANGHAI_STAT_DATE);
         assertThat(heartbeatCount(ReadingHeartbeatOutcome.ACCEPTED)).isEqualTo(1.0);
         assertThat(meterRegistry.counter("novel.reading.credited.seconds").count()).isEqualTo(10.0);
@@ -130,8 +129,9 @@ class ReadingEngagementServiceTest {
             "session_rate_limited",
             "ip_rate_limited",
             "daily_cap_reached",
+            "too_early",
             "redis_error");
-        assertThat(meterRegistry.find("novel.reading.heartbeat").counters()).hasSize(7);
+        assertThat(meterRegistry.find("novel.reading.heartbeat").counters()).hasSize(8);
     }
 
     private double heartbeatCount(ReadingHeartbeatOutcome outcome) {
