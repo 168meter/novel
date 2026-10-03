@@ -9,6 +9,13 @@ performance/results/raw/
 *.jtl
 
 .env.prod
+.env
+.env.local
+.env.*.local
+*.local
+*.bundle
+**/node_modules/
+**/.vscode/
 deploy/runtime/
 deploy/backups/
 deploy/certbot/
