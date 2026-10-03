@@ -20,6 +20,14 @@
             <groupId>com.java2nb</groupId>
             <artifactId>novel-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.java2nb</groupId>
+            <artifactId>novel-cache-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.yaml</groupId>

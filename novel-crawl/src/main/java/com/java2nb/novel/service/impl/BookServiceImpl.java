@@ -1,6 +1,8 @@
 package com.java2nb.novel.service.impl;
 
 import com.java2nb.novel.entity.Book;
+import com.java2nb.novel.cache.ChapterCacheIdentity;
+import com.java2nb.novel.cache.CrawlChapterCacheInvalidator;
 import com.java2nb.novel.entity.BookContent;
 import com.java2nb.novel.entity.BookIndex;
 import com.java2nb.novel.mapper.*;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +43,8 @@ public class BookServiceImpl implements BookService {
     private final CrawlBookIndexMapper bookIndexMapper;
 
     private final Map<String, BookContentService> bookContentServiceMap;
+
+    private final CrawlChapterCacheInvalidator chapterCacheInvalidator;
 
     @Value("${content.save.storage}")
     private String storageType;
@@ -94,6 +99,13 @@ public class BookServiceImpl implements BookService {
                 });
                 bookIndexMapper.insertMultiple(bookIndexList);
                 bookContentServiceMap.get(storageType).saveBookContent(bookContentList, book.getId());
+                if ("db".equals(storageType)) {
+                    LinkedHashSet<ChapterCacheIdentity> identities = new LinkedHashSet<>();
+                    for (BookIndex bookIndex : bookIndexList) {
+                        identities.add(new ChapterCacheIdentity(book.getId(), bookIndex.getId()));
+                    }
+                    chapterCacheInvalidator.evictAfterCommit(List.copyOf(identities));
+                }
 
             }
         }
@@ -127,6 +139,7 @@ public class BookServiceImpl implements BookService {
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void updateBookAndIndexAndContent(Book book, List<BookIndex> bookIndexList, List<BookContent> bookContentList, Map<Integer, BookIndex> existBookIndexMap) {
+        LinkedHashSet<ChapterCacheIdentity> identities = new LinkedHashSet<>();
         for (int i = 0; i < bookIndexList.size(); i++) {
             BookIndex bookIndex = bookIndexList.get(i);
             BookContent bookContent = bookContentList.get(i);
@@ -137,10 +150,17 @@ public class BookServiceImpl implements BookService {
                 bookIndex.setStorageType(storageType);
                 bookIndexMapper.insertSelective(bookIndex);
                 bookContentServiceMap.get(storageType).saveBookContent(bookContent, book.getId());
+                if ("db".equals(storageType)) {
+                    identities.add(new ChapterCacheIdentity(book.getId(), bookIndex.getId()));
+                }
             } else {
                 //更新
                 bookIndexMapper.updateByPrimaryKeySelective(bookIndex);
-                bookContentServiceMap.get(existBookIndexMap.get(bookIndex.getIndexNum()).getStorageType()).updateBookContent(bookContent, book.getId());
+                BookIndex existing = existBookIndexMap.get(bookIndex.getIndexNum());
+                bookContentServiceMap.get(existing.getStorageType()).updateBookContent(bookContent, book.getId());
+                if ("db".equals(existing.getStorageType())) {
+                    identities.add(new ChapterCacheIdentity(book.getId(), existing.getId()));
+                }
             }
 
 
@@ -153,6 +173,7 @@ public class BookServiceImpl implements BookService {
             book.setVisitCount(null);
         }
         bookMapper.updateByPrimaryKeySelective(book);
+        chapterCacheInvalidator.evictAfterCommit(List.copyOf(identities));
 
     }
 

@@ -19,6 +19,10 @@
             <groupId>com.java2nb</groupId>
             <artifactId>novel-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.java2nb</groupId>
+            <artifactId>novel-cache-contract</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

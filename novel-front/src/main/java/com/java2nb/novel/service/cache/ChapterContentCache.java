@@ -2,6 +2,7 @@ package com.java2nb.novel.service.cache;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java2nb.novel.cache.ChapterContentCacheKey;
 import com.java2nb.novel.entity.BookContent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -11,8 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.UUID;
@@ -26,7 +25,6 @@ import java.util.function.Supplier;
 @Component
 public class ChapterContentCache {
 
-    static final String CONTENT_KEY_PREFIX = "novel:chapter:v1:";
     static final String LOCK_KEY_PREFIX = "novel:chapter:lock:v1:";
     static final String NULL_MARKER = "__NULL__";
     static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
@@ -43,6 +41,7 @@ public class ChapterContentCache {
     private static final int DEFAULT_RETRY_DELAY_MILLIS = 50;
 
     private final StringRedisTemplate redisTemplate;
+    private final FrontChapterCacheInvalidator cacheInvalidator;
     private final ObjectMapper objectMapper;
     private final int contentTtlSeconds;
     private final int jitterBoundSeconds;
@@ -97,6 +96,7 @@ public class ChapterContentCache {
         MeterRegistry meterRegistry
     ) {
         this.redisTemplate = redisTemplate;
+        this.cacheInvalidator = new FrontChapterCacheInvalidator(redisTemplate, meterRegistry);
         this.objectMapper = objectMapper;
         this.contentTtlSeconds = contentTtlSeconds;
         this.jitterBoundSeconds = jitterBoundSeconds;
@@ -178,25 +178,11 @@ public class ChapterContentCache {
     }
 
     public void evict(Long bookId, Long bookIndexId) {
-        String key = contentKey(bookId, bookIndexId);
-        try {
-            redisTemplate.delete(key);
-        } catch (RuntimeException exception) {
-            log.warn("Failed to evict chapter cache key={}", key, exception);
-        }
+        cacheInvalidator.evictNow(bookId, bookIndexId);
     }
 
     public void evictAfterCommit(Long bookId, Long bookIndexId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            evict(bookId, bookIndexId);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                evict(bookId, bookIndexId);
-            }
-        });
+        cacheInvalidator.evictAfterCommit(bookId, bookIndexId);
     }
 
     private BookContent waitForWinner(String contentKey, Supplier<BookContent> loader) {
@@ -272,7 +258,7 @@ public class ChapterContentCache {
     }
 
     private static String contentKey(Long bookId, Long bookIndexId) {
-        return CONTENT_KEY_PREFIX + bookId + ":" + bookIndexId;
+        return ChapterContentCacheKey.of(bookId, bookIndexId);
     }
 
     private static String lockKey(Long bookId, Long bookIndexId) {

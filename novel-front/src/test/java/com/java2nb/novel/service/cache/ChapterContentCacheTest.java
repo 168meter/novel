@@ -19,12 +19,14 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -332,8 +334,21 @@ class ChapterContentCacheTest {
     void evictDeletesOnlyRequestedChapterKey() {
         cache.evict(BOOK_ID, CHAPTER_ID);
 
-        verify(redisTemplate).delete(CONTENT_KEY);
-        verify(redisTemplate, never()).delete(LOCK_KEY);
+        verify(redisTemplate).delete(Set.of(CONTENT_KEY));
+        verify(redisTemplate, never()).delete(Set.of(LOCK_KEY));
+        assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
+            "source", "front", "result", "success").count()).isEqualTo(1);
+    }
+
+    @Test
+    void evictionFailureIsMeasuredAndDoesNotEscape() {
+        doThrow(new RedisConnectionFailureException("offline"))
+            .when(redisTemplate).delete(Set.of(CONTENT_KEY));
+
+        assertThatCode(() -> cache.evict(BOOK_ID, CHAPTER_ID)).doesNotThrowAnyException();
+
+        assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
+            "source", "front", "result", "failed").count()).isEqualTo(1);
     }
 
     @Test
@@ -346,7 +361,7 @@ class ChapterContentCacheTest {
         List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
         assertThat(synchronizations).hasSize(1);
         synchronizations.getFirst().afterCommit();
-        verify(redisTemplate).delete(CONTENT_KEY);
+        verify(redisTemplate).delete(Set.of(CONTENT_KEY));
     }
 
     @Test

@@ -1,9 +1,15 @@
 package com.java2nb.novel.service.impl;
 
-import org.apache.ibatis.annotations.Param;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.java2nb.novel.cache.ChapterCacheIdentity;
+import com.java2nb.novel.cache.AdminChapterCacheInvalidator;
+import com.java2nb.novel.domain.BookIndexDO;
+import com.java2nb.novel.domain.ChapterCacheIdentityDO;
+import com.java2nb.novel.dao.BookIndexDao;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -14,9 +20,11 @@ import com.java2nb.novel.service.BookContentService;
 
 
 @Service
+@RequiredArgsConstructor
 public class BookContentServiceImpl implements BookContentService {
-	@Autowired
-	private BookContentDao bookContentDao;
+	private final BookContentDao bookContentDao;
+	private final BookIndexDao bookIndexDao;
+	private final AdminChapterCacheInvalidator chapterCacheInvalidator;
 	
 	@Override
 	public BookContentDO get(Long id){
@@ -35,27 +43,60 @@ public class BookContentServiceImpl implements BookContentService {
 	
 	@Override
 	public int save(BookContentDO bookContent){
-		return bookContentDao.save(bookContent);
+		ChapterCacheIdentity identity = identityForIndex(bookContent.getIndexId());
+		int affected = bookContentDao.save(bookContent);
+		if (affected > 0 && identity != null) {
+			chapterCacheInvalidator.evictAfterCommit(identity.bookId(), identity.bookIndexId());
+		}
+		return affected;
 	}
 	
 	@Override
 	public int update(BookContentDO bookContent){
-		return bookContentDao.update(bookContent);
+		LinkedHashSet<ChapterCacheIdentity> identities = identitiesForRows(List.of(bookContent.getId()));
+		if (bookContent.getIndexId() != null) {
+			ChapterCacheIdentity newIdentity = identityForIndex(bookContent.getIndexId());
+			if (newIdentity != null) identities.add(newIdentity);
+		}
+		int affected = bookContentDao.update(bookContent);
+		if (affected > 0) chapterCacheInvalidator.evictAfterCommit(List.copyOf(identities));
+		return affected;
 	}
 	
 	@Override
 	public int remove(Long id){
-		return bookContentDao.remove(id);
+		List<ChapterCacheIdentity> identities = List.copyOf(identitiesForRows(List.of(id)));
+		int affected = bookContentDao.remove(id);
+		if (affected > 0) chapterCacheInvalidator.evictAfterCommit(identities);
+		return affected;
 	}
 	
 	@Override
 	public int batchRemove(Long[] ids){
-		return bookContentDao.batchRemove(ids);
+		List<Long> rowIds = Arrays.asList(ids);
+		List<ChapterCacheIdentity> identities = List.copyOf(identitiesForRows(rowIds));
+		int affected = bookContentDao.batchRemove(ids);
+		if (affected > 0) chapterCacheInvalidator.evictAfterCommit(identities);
+		return affected;
 	}
 
 	@Override
 	public List<BookContentDO> listByIndexIds(List<Long> indexIds) {
 		return bookContentDao.listByIndexIds(indexIds);
+	}
+
+	private ChapterCacheIdentity identityForIndex(Long indexId) {
+		if (indexId == null) return null;
+		BookIndexDO index = bookIndexDao.get(indexId);
+		return index == null ? null : new ChapterCacheIdentity(index.getBookId(), indexId);
+	}
+
+	private LinkedHashSet<ChapterCacheIdentity> identitiesForRows(List<Long> rowIds) {
+		LinkedHashSet<ChapterCacheIdentity> identities = new LinkedHashSet<>();
+		for (ChapterCacheIdentityDO identity : bookContentDao.listCacheIdentitiesByIds(rowIds)) {
+			identities.add(new ChapterCacheIdentity(identity.getBookId(), identity.getBookIndexId()));
+		}
+		return identities;
 	}
 
 }

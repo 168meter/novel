@@ -655,6 +655,7 @@ public class BookServiceImpl implements BookService {
         bookContent.setIndexId(lastIndexId);
         bookContent.setContent(content);
         bookContentMapper.insertSelective(bookContent);
+        chapterContentCache.evictAfterCommit(bookId, lastIndexId);
 
 
     }

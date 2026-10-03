@@ -1,11 +1,13 @@
 package com.java2nb.novel.service.impl;
 
+import com.java2nb.novel.cache.ChapterCacheIdentity;
+import com.java2nb.novel.cache.AdminChapterCacheInvalidator;
 import com.java2nb.novel.dao.BookContentDao;
 import com.java2nb.novel.dao.BookDao;
 import com.java2nb.novel.dao.BookIndexDao;
 import com.java2nb.novel.domain.BookDO;
 import com.java2nb.novel.service.BookService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -17,14 +19,13 @@ import java.util.stream.Collectors;
 
 
 @Service
+@RequiredArgsConstructor
 public class BookServiceImpl implements BookService {
 
-    @Autowired
-    private BookDao bookDao;
-    @Autowired
-    private BookIndexDao bookIndexDao;
-    @Autowired
-    private BookContentDao bookContentDao;
+    private final BookDao bookDao;
+    private final BookIndexDao bookIndexDao;
+    private final BookContentDao bookContentDao;
+    private final AdminChapterCacheInvalidator chapterCacheInvalidator;
 
     @Override
     public BookDO get(Long id) {
@@ -59,6 +60,9 @@ public class BookServiceImpl implements BookService {
             Long[] indexIdArray = indexIds.toArray(new Long[0]);
             bookIndexDao.batchRemove(indexIdArray);
             bookContentDao.removeByIndexIds(indexIdArray);
+            chapterCacheInvalidator.evictAfterCommit(indexIds.stream()
+                .map(indexId -> new ChapterCacheIdentity(id, indexId))
+                .toList());
         }
         return bookDao.remove(id);
     }
