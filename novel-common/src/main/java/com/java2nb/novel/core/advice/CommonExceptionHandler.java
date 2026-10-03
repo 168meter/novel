@@ -4,12 +4,26 @@ import io.github.xxyopen.model.resp.RestResult;
 import io.github.xxyopen.model.resp.SysResultCode;
 import io.github.xxyopen.web.exception.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.ModelAndView;
+
+import java.util.List;
 
 /**
  * 统一异常处理器
@@ -24,10 +38,22 @@ public class CommonExceptionHandler {
     }
 
     @ExceptionHandler({BindException.class})
-    public RestResult<Void> handlerBindException(BindException e) {
+    public ResponseEntity<RestResult<Void>> handlerBindException(BindException e) {
         // Binding exceptions include rejected values, which can be passwords or one-time codes.
         log.warn("Request validation failed");
-        return RestResult.fail(SysResultCode.PARAM_ERROR);
+        return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
+            .body(RestResult.fail(SysResultCode.PARAM_ERROR));
+    }
+
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class,
+        ConstraintViolationException.class, ServletRequestBindingException.class})
+    public Object handleClientInputException(HttpServletRequest request, Exception e) {
+        log.warn("Request input could not be parsed");
+        if (isJsonRequest(request)) {
+            return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
+                .body(RestResult.fail(SysResultCode.PARAM_ERROR));
+        }
+        return new ModelAndView("404", HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler({BusinessException.class})
@@ -41,16 +67,45 @@ public class CommonExceptionHandler {
         log.error(e.getMessage(), e);
         if (isJsonRequest(request)) {
             // 如果是REST请求，返回JSON格式的错误响应
-            return RestResult.error();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).contentType(MediaType.APPLICATION_JSON)
+                .body(RestResult.error());
         } else {
-            //跳转页面过程中出现异常时统一跳转到404页面
-            return new ModelAndView("404");
+            // Reuse the existing safe error template while preserving the real server status.
+            return new ModelAndView("404", HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
     private boolean isJsonRequest(HttpServletRequest request) {
+        Object handler = request.getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE);
+        if (handler instanceof HandlerMethod handlerMethod) {
+            if (AnnotatedElementUtils.hasAnnotation(handlerMethod.getBeanType(), RestController.class)
+                || handlerMethod.hasMethodAnnotation(ResponseBody.class)) {
+                return true;
+            }
+        }
         String acceptHeader = request.getHeader("Accept");
-        return acceptHeader != null && acceptHeader.contains(MediaType.APPLICATION_JSON_VALUE);
+        if (acceptHeader == null) {
+            return false;
+        }
+        try {
+            List<MediaType> acceptedTypes = MediaType.parseMediaTypes(acceptHeader);
+            MediaType.sortBySpecificityAndQuality(acceptedTypes);
+            for (MediaType acceptedType : acceptedTypes) {
+                if (acceptedType.getQualityValue() == 0.0d) {
+                    continue;
+                }
+                if (acceptedType.isCompatibleWith(MediaType.TEXT_HTML)) {
+                    return false;
+                }
+                if (acceptedType.isCompatibleWith(MediaType.APPLICATION_JSON)
+                    || acceptedType.getSubtype().endsWith("+json")) {
+                    return true;
+                }
+            }
+        } catch (InvalidMediaTypeException ignored) {
+            // Malformed negotiation headers do not change a page request into a JSON API request.
+        }
+        return false;
     }
 
 }

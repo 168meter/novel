@@ -107,6 +107,7 @@ class ReadingHeartbeatGateTest {
             .contains("redis.call('TIME')", "createdAtMillis", "lastCreditedAtMillis", "HGET",
                 "ZREMRANGEBYSCORE", "ZCARD", "ZADD", "lastSequence",
                 "credited + creditSeconds > tonumber(ARGV[9])",
+                "redis.call('EXPIRE', KEYS[1], tonumber(ARGV[13]))",
                 "redis.call('SET', KEYS[2], now, 'EX', tonumber(ARGV[13]))",
                 "redis.call('SET', KEYS[5], credited + creditSeconds, 'EX', tonumber(ARGV[12]))");
     }

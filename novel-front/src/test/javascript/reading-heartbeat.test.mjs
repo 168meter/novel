@@ -28,9 +28,9 @@ class FakeEventTarget {
         this.listeners.get(type)?.delete(listener);
     }
 
-    dispatch(type) {
+    dispatch(type, event = {}) {
         for (const listener of [...(this.listeners.get(type) ?? [])]) {
-            listener();
+            listener(event);
         }
     }
 
@@ -86,7 +86,7 @@ function createEnvironment({fetchFn = () => Promise.resolve()} = {}) {
     return {documentRef, windowRef, timers, fetchFn};
 }
 
-function buildTracker(environment) {
+function buildTracker(environment, overrides = {}) {
     return createReadingHeartbeat({
         documentRef: environment.documentRef,
         windowRef: environment.windowRef,
@@ -94,8 +94,26 @@ function buildTracker(environment) {
         setTimeoutFn: environment.timers.setTimeout,
         clearTimeoutFn: environment.timers.clearTimeout,
         intervalMs: 30000,
-        payload: PAYLOAD
+        payload: PAYLOAD,
+        ...overrides
     });
+}
+
+function heartbeatResponse(status, outcome, onRead = () => {}) {
+    return {
+        status,
+        ok: status >= 200 && status < 300,
+        json: async () => {
+            onRead();
+            return {data: {outcome}};
+        }
+    };
+}
+
+async function settleHeartbeatResponse() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
 }
 
 test('waits for a complete active interval before posting the first sequence', () => {
@@ -182,6 +200,75 @@ test('a rejected request does not trigger an immediate retry', async () => {
     assert.equal(environment.timers.pendingDelay(), 30000);
 });
 
+test('accepted and non-credit outcomes are read and continue on the normal interval', async () => {
+    const cases = [
+        [200, 'ACCEPTED'],
+        [200, 'TOO_EARLY'],
+        [429, 'RATE_LIMIT'],
+        [503, 'REDIS_ERROR']
+    ];
+
+    for (const [status, outcome] of cases) {
+        let responseRead = false;
+        const environment = createEnvironment({
+            fetchFn: () => Promise.resolve(heartbeatResponse(status, outcome, () => {
+                responseRead = true;
+            }))
+        });
+        buildTracker(environment).start();
+
+        environment.timers.runNext();
+        await settleHeartbeatResponse();
+
+        assert.equal(responseRead, true, `${outcome} response should be read`);
+        assert.equal(environment.timers.pendingCount(), 1);
+        assert.equal(environment.timers.pendingDelay(), 30000);
+    }
+});
+
+test('invalid page response stops the current tracker without refreshing credentials', async () => {
+    const diagnostics = [];
+    const environment = createEnvironment({
+        fetchFn: () => Promise.resolve(heartbeatResponse(409, 'INVALID_PAGE'))
+    });
+    const tracker = buildTracker(environment, {
+        onDiagnostic: state => diagnostics.push(state)
+    });
+    tracker.start();
+
+    environment.timers.runNext();
+    await settleHeartbeatResponse();
+
+    assert.deepEqual(diagnostics, ['INVALID_PAGE']);
+    assert.equal(environment.timers.pendingCount(), 0);
+    assert.equal(environment.documentRef.listenerCount('visibilitychange'), 0);
+    assert.equal(environment.windowRef.listenerCount('focus'), 0);
+    assert.equal(environment.windowRef.listenerCount('blur'), 0);
+    assert.equal(environment.windowRef.listenerCount('pagehide'), 0);
+    assert.equal(environment.windowRef.listenerCount('pageshow'), 0);
+});
+
+test('invalid page still stops when diagnostic reporting fails', async () => {
+    const environment = createEnvironment({
+        fetchFn: () => Promise.resolve(heartbeatResponse(409, 'INVALID_PAGE'))
+    });
+    buildTracker(environment, {
+        onDiagnostic: () => {
+            throw new Error('diagnostic unavailable');
+        }
+    }).start();
+
+    environment.timers.runNext();
+    await settleHeartbeatResponse();
+
+    assert.equal(environment.timers.pendingCount(), 0);
+    assert.equal(environment.documentRef.listenerCount('visibilitychange'), 0);
+    assert.equal(environment.windowRef.listenerCount('focus'), 0);
+    assert.equal(environment.windowRef.listenerCount('blur'), 0);
+    assert.equal(environment.windowRef.listenerCount('pagehide'), 0);
+    assert.equal(environment.windowRef.listenerCount('pageshow'), 0);
+});
+
 test('destroy removes every listener and pending timer', () => {
     const environment = createEnvironment();
     const tracker = buildTracker(environment);
@@ -194,9 +281,10 @@ test('destroy removes every listener and pending timer', () => {
     assert.equal(environment.windowRef.listenerCount('focus'), 0);
     assert.equal(environment.windowRef.listenerCount('blur'), 0);
     assert.equal(environment.windowRef.listenerCount('pagehide'), 0);
+    assert.equal(environment.windowRef.listenerCount('pageshow'), 0);
 });
 
-test('pagehide destroys the tracker without sending partial credit', () => {
+test('pagehide suspends the tracker without sending partial credit', () => {
     const fetchCalls = [];
     const environment = createEnvironment({
         fetchFn: (url, options) => {
@@ -207,11 +295,138 @@ test('pagehide destroys the tracker without sending partial credit', () => {
     const tracker = buildTracker(environment);
     tracker.start();
 
-    environment.windowRef.dispatch('pagehide');
+    environment.windowRef.dispatch('pagehide', {persisted: true});
 
     assert.equal(fetchCalls.length, 0);
     assert.equal(environment.timers.pendingCount(), 0);
-    assert.equal(environment.windowRef.listenerCount('pagehide'), 0);
+    assert.equal(environment.windowRef.listenerCount('pagehide'), 1);
+    assert.equal(environment.windowRef.listenerCount('pageshow'), 1);
+});
+
+test('persisted pageshow resumes after a full interval and preserves sequence', () => {
+    const fetchCalls = [];
+    const environment = createEnvironment({
+        fetchFn: (url, options) => {
+            fetchCalls.push({url, options});
+            return Promise.resolve();
+        }
+    });
+    const tracker = buildTracker(environment);
+    tracker.start();
+    environment.timers.runNext();
+
+    environment.windowRef.dispatch('pagehide', {persisted: true});
+    environment.windowRef.dispatch('pageshow', {persisted: true});
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(environment.timers.pendingCount(), 1);
+    assert.equal(environment.timers.pendingDelay(), 30000);
+    environment.timers.runNext();
+    assert.equal(JSON.parse(fetchCalls[1].options.body).sequence, 2);
+});
+
+test('non-persisted pageshow and repeated start do not duplicate timers or listeners', () => {
+    const environment = createEnvironment();
+    const tracker = buildTracker(environment);
+    tracker.start();
+    tracker.start();
+    environment.windowRef.dispatch('pageshow', {persisted: false});
+
+    assert.equal(environment.timers.pendingCount(), 1);
+    assert.equal(environment.documentRef.listenerCount('visibilitychange'), 1);
+    assert.equal(environment.windowRef.listenerCount('focus'), 1);
+    assert.equal(environment.windowRef.listenerCount('blur'), 1);
+    assert.equal(environment.windowRef.listenerCount('pagehide'), 1);
+    assert.equal(environment.windowRef.listenerCount('pageshow'), 1);
+});
+
+test('repeated BFCache restores keep one timer and continue sequence', () => {
+    const fetchCalls = [];
+    const environment = createEnvironment({
+        fetchFn: (url, options) => {
+            fetchCalls.push({url, options});
+            return Promise.resolve();
+        }
+    });
+    buildTracker(environment).start();
+
+    for (let cycle = 1; cycle <= 3; cycle++) {
+        environment.windowRef.dispatch('pagehide', {persisted: true});
+        environment.windowRef.dispatch('pageshow', {persisted: true});
+        environment.windowRef.dispatch('focus');
+        assert.equal(environment.timers.pendingCount(), 1);
+        environment.timers.runNext();
+        assert.equal(JSON.parse(fetchCalls.at(-1).options.body).sequence, cycle);
+    }
+});
+
+test('focus visibility and BFCache transitions share one timer', () => {
+    const fetchCalls = [];
+    const environment = createEnvironment({
+        fetchFn: (url, options) => {
+            fetchCalls.push({url, options});
+            return Promise.resolve();
+        }
+    });
+    buildTracker(environment).start();
+
+    environment.windowRef.dispatch('focus');
+    environment.windowRef.focused = false;
+    environment.windowRef.dispatch('blur');
+    environment.windowRef.focused = true;
+    environment.windowRef.dispatch('focus');
+    environment.documentRef.visibilityState = 'hidden';
+    environment.documentRef.dispatch('visibilitychange');
+    environment.documentRef.visibilityState = 'visible';
+    environment.documentRef.dispatch('visibilitychange');
+    environment.windowRef.dispatch('pagehide', {persisted: true});
+    environment.windowRef.dispatch('pageshow', {persisted: true});
+
+    assert.equal(environment.timers.pendingCount(), 1);
+    assert.equal(environment.timers.pendingDelay(), 30000);
+    environment.timers.runNext();
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(JSON.parse(fetchCalls[0].options.body).sequence, 1);
+});
+
+test('persisted restore while hidden waits until visible and focused', () => {
+    const environment = createEnvironment();
+    buildTracker(environment).start();
+
+    environment.windowRef.dispatch('pagehide', {persisted: true});
+    environment.documentRef.visibilityState = 'hidden';
+    environment.windowRef.focused = false;
+    environment.windowRef.dispatch('pageshow', {persisted: true});
+    assert.equal(environment.timers.pendingCount(), 0);
+
+    environment.documentRef.visibilityState = 'visible';
+    environment.documentRef.dispatch('visibilitychange');
+    assert.equal(environment.timers.pendingCount(), 0);
+
+    environment.windowRef.focused = true;
+    environment.windowRef.dispatch('focus');
+    assert.equal(environment.timers.pendingCount(), 1);
+    assert.equal(environment.timers.pendingDelay(), 30000);
+});
+
+test('INVALID_PAGE remains stopped after BFCache and activity events', async () => {
+    const fetchCalls = [];
+    const environment = createEnvironment({
+        fetchFn: (url, options) => {
+            fetchCalls.push({url, options});
+            return Promise.resolve(heartbeatResponse(409, 'INVALID_PAGE'));
+        }
+    });
+    buildTracker(environment).start();
+    environment.timers.runNext();
+    await settleHeartbeatResponse();
+
+    environment.windowRef.dispatch('pageshow', {persisted: true});
+    environment.windowRef.dispatch('focus');
+    environment.documentRef.dispatch('visibilitychange');
+
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(environment.timers.pendingCount(), 0);
 });
 
 test('does not schedule while the page is inactive', () => {

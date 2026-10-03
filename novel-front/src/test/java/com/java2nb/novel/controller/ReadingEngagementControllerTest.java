@@ -2,17 +2,19 @@ package com.java2nb.novel.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java2nb.novel.core.advice.CommonExceptionHandler;
 import com.java2nb.novel.core.utils.ThreadLocalUtil;
 import com.java2nb.novel.engagement.ReadingClientAddressResolver;
 import com.java2nb.novel.engagement.ReadingEngagementService;
 import com.java2nb.novel.engagement.ReadingHeartbeatOutcome;
 import com.java2nb.novel.engagement.ReadingHeartbeatRequest;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.springframework.http.MediaType;
@@ -25,12 +27,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ReadingEngagementControllerTest {
@@ -50,7 +52,9 @@ class ReadingEngagementControllerTest {
         clientAddressResolver = mock(ReadingClientAddressResolver.class);
         ReadingEngagementController controller =
             new ReadingEngagementController(engagementService, clientAddressResolver);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new CommonExceptionHandler())
+            .build();
     }
 
     @Test
@@ -65,14 +69,33 @@ class ReadingEngagementControllerTest {
 
             MvcResult result = mockMvc.perform(validHeartbeat())
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.outcome").value("ACCEPTED"))
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"))
                 .andReturn();
 
-            assertPublicSuccessBody(result.getResponse().getContentAsString());
+            assertPrivacySafeBody(result.getResponse().getContentAsString());
         }
 
         verify(clientAddressResolver).resolve(any(HttpServletRequest.class));
         verify(engagementService).handle(expectedRequest, "browser-user-mark", "203.0.113.9");
+    }
+
+    @Test
+    void browserHeartbeatWithoutAcceptHeaderStillReturnsJson() throws Exception {
+        when(clientAddressResolver.resolve(any(HttpServletRequest.class))).thenReturn("203.0.113.9");
+        when(engagementService.handle(any(ReadingHeartbeatRequest.class), any(), any()))
+            .thenReturn(ReadingHeartbeatOutcome.ACCEPTED);
+
+        try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
+            threadLocal.when(ThreadLocalUtil::getClientId).thenReturn("browser-user-mark");
+            mockMvc.perform(post("/engagement/reading/heartbeat")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(VALID_JSON))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                    .contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.data.outcome").value("ACCEPTED"));
+        }
     }
 
     @Test
@@ -114,35 +137,47 @@ class ReadingEngagementControllerTest {
         mockMvc.perform(post("/engagement/reading/heartbeat")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                .contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
 
         verifyNoInteractions(engagementService, clientAddressResolver);
     }
 
-    @Test
-    void everyInternalOutcomeReturnsTheSamePrivacySafeBody() throws Exception {
+    @ParameterizedTest
+    @MethodSource("heartbeatHttpSemantics")
+    void outcomeUsesExplicitHttpStatusAndPublicOutcome(
+        ReadingHeartbeatOutcome outcome, int expectedStatus, String expectedPublicOutcome
+    ) throws Exception {
         ReadingHeartbeatRequest expectedRequest = new ReadingHeartbeatRequest(42L, 7L, PAGE_VISIT_ID, 3L);
         when(clientAddressResolver.resolve(any(HttpServletRequest.class))).thenReturn("203.0.113.9");
-        List<String> responseBodies = new ArrayList<>();
+        when(engagementService.handle(expectedRequest, "browser-user-mark", "203.0.113.9"))
+            .thenReturn(outcome);
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
             threadLocal.when(ThreadLocalUtil::getClientId).thenReturn("browser-user-mark");
-            for (ReadingHeartbeatOutcome outcome : ReadingHeartbeatOutcome.values()) {
-                when(engagementService.handle(expectedRequest, "browser-user-mark", "203.0.113.9"))
-                    .thenReturn(outcome);
-
-                MvcResult result = mockMvc.perform(validHeartbeat())
-                    .andExpect(status().isOk())
-                    .andReturn();
-                responseBodies.add(result.getResponse().getContentAsString());
-            }
+            MvcResult result = mockMvc.perform(validHeartbeat())
+                .andExpect(status().is(expectedStatus))
+                .andExpect(jsonPath("$.data.outcome").value(expectedPublicOutcome))
+                .andReturn();
+            assertPrivacySafeBody(result.getResponse().getContentAsString());
         }
 
-        assertThat(responseBodies).hasSize(ReadingHeartbeatOutcome.values().length);
-        assertThat(responseBodies).containsOnly(responseBodies.getFirst());
-        assertPublicSuccessBody(responseBodies.getFirst());
-        verify(engagementService, times(ReadingHeartbeatOutcome.values().length))
+        verify(engagementService)
             .handle(expectedRequest, "browser-user-mark", "203.0.113.9");
+    }
+
+    private static Stream<Arguments> heartbeatHttpSemantics() {
+        return Stream.of(
+            Arguments.of(ReadingHeartbeatOutcome.ACCEPTED, 200, "ACCEPTED"),
+            Arguments.of(ReadingHeartbeatOutcome.DUPLICATE, 200, "DUPLICATE"),
+            Arguments.of(ReadingHeartbeatOutcome.TOO_EARLY, 200, "TOO_EARLY"),
+            Arguments.of(ReadingHeartbeatOutcome.DAILY_CAP_REACHED, 200, "DAILY_CAP"),
+            Arguments.of(ReadingHeartbeatOutcome.SESSION_RATE_LIMITED, 429, "RATE_LIMIT"),
+            Arguments.of(ReadingHeartbeatOutcome.IP_RATE_LIMITED, 429, "RATE_LIMIT"),
+            Arguments.of(ReadingHeartbeatOutcome.INVALID_PAGE, 409, "INVALID_PAGE"),
+            Arguments.of(ReadingHeartbeatOutcome.REDIS_ERROR, 503, "REDIS_ERROR")
+        );
     }
 
     private MockHttpServletRequestBuilder validHeartbeat() {
@@ -152,13 +187,11 @@ class ReadingEngagementControllerTest {
             .content(VALID_JSON);
     }
 
-    private void assertPublicSuccessBody(String body) throws Exception {
+    private void assertPrivacySafeBody(String body) throws Exception {
         JsonNode json = new ObjectMapper().readTree(body);
         assertThat(json.path("code").asInt()).isEqualTo(200);
         assertThat(json.path("msg").asText()).isEqualTo("SUCCESS");
-        assertThat(json.path("data").isNull()).isTrue();
         assertThat(body)
-            .doesNotContain("ACCEPTED", "DUPLICATE", "INVALID_PAGE", "RATE_LIMITED", "DAILY_CAP", "REDIS_ERROR")
             .doesNotContain("browser-user-mark", "203.0.113.9", "session-hash", "ip-hmac");
     }
 }

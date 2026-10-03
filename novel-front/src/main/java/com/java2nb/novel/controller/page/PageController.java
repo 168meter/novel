@@ -10,6 +10,7 @@ import com.java2nb.novel.vo.BookCommentVO;
 import com.java2nb.novel.vo.BookIndexNavigationVO;
 import com.java2nb.novel.vo.BookSettingVO;
 import io.github.xxyopen.model.page.PageBean;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
@@ -27,7 +28,10 @@ import org.springframework.web.servlet.ModelAndView;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 
 /**
  * @author 11797
@@ -50,6 +54,8 @@ public class PageController extends BaseController {
     private final Map<String, BookContentService> bookContentServiceMap;
 
     private final ReadingPageVisitRegistrar readingPageVisitRegistrar;
+
+    private final MeterRegistry meterRegistry;
 
     @RequestMapping("{url}.html")
     public String module(@PathVariable("url") String url) {
@@ -182,19 +188,19 @@ public class PageController extends BaseController {
     @RequestMapping("/book/{bookId}.html")
     public String bookDetail(@PathVariable("bookId") Long bookId, Model model) {
         //加载小说基本信息线程
-        CompletableFuture<Book> bookCompletableFuture = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<Book> bookCompletableFuture = submitReadingPageTask(() -> {
             //查询书籍
             Book book = bookService.findBook(bookId).orElse(null);
             log.debug("加载小说基本信息线程结束");
             return book;
-        }, threadPoolExecutor);
+        });
         //加载小说评论列表线程
-        CompletableFuture<PageBean<BookCommentVO>> bookCommentPageBeanCompletableFuture = CompletableFuture.supplyAsync(
+        CompletableFuture<PageBean<BookCommentVO>> bookCommentPageBeanCompletableFuture = submitReadingPageTask(
             () -> {
                 PageBean<BookCommentVO> bookCommentVOPageBean = bookService.listCommentByPage(null, bookId, 1, 5);
                 log.debug("加载小说评论列表线程结束");
                 return bookCommentVOPageBean;
-            }, threadPoolExecutor);
+            });
         //加载小说首章信息线程，该线程在加载小说基本信息线程执行完毕后才执行
         CompletableFuture<Long> firstBookIndexIdCompletableFuture = bookCompletableFuture.thenApplyAsync((book) -> {
             if (book == null) {
@@ -218,14 +224,14 @@ public class PageController extends BaseController {
             return books;
         }, threadPoolExecutor);
 
-        Book book = bookCompletableFuture.get();
+        Book book = awaitReadingPageTask(bookCompletableFuture);
         if (book == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
         }
         model.addAttribute("book", book);
-        model.addAttribute("firstBookIndexId", firstBookIndexIdCompletableFuture.get());
-        model.addAttribute("recBooks", recBookCompletableFuture.get());
-        model.addAttribute("bookCommentPageBean", bookCommentPageBeanCompletableFuture.get());
+        model.addAttribute("firstBookIndexId", awaitReadingPageTask(firstBookIndexIdCompletableFuture));
+        model.addAttribute("recBooks", awaitReadingPageTask(recBookCompletableFuture));
+        model.addAttribute("bookCommentPageBean", awaitReadingPageTask(bookCommentPageBeanCompletableFuture));
 
         return ThreadLocalUtil.getTemplateDir() + "book/book_detail";
     }
@@ -255,7 +261,7 @@ public class PageController extends BaseController {
     public String bookContent(@PathVariable("bookId") Long bookId, @PathVariable("bookIndexId") Long bookIndexId,
         HttpServletRequest request, Model model) {
         // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
-        CompletableFuture<ChapterPageResult> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<ChapterPageResult> chapterPageDataCompletableFuture = submitReadingPageTask(() -> {
             BookIndex bookIndex = bookService.findBookIndex(bookId, bookIndexId).orElse(null);
             if (bookIndex == null) {
                 return ChapterPageResult.failure(ChapterPageFailure.CHAPTER_NOT_FOUND);
@@ -294,9 +300,9 @@ public class PageController extends BaseController {
             log.debug("加载章节页面数据线程结束");
             return ChapterPageResult.success(new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
                 navigation.getNextBookIndexId(), bookContent, needBuy));
-        }, threadPoolExecutor);
+        });
 
-        ChapterPageResult chapterPageResult = chapterPageDataCompletableFuture.get();
+        ChapterPageResult chapterPageResult = awaitReadingPageTask(chapterPageDataCompletableFuture);
         if (chapterPageResult.failure() != null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, chapterPageResult.failure().message());
         }
@@ -314,6 +320,45 @@ public class PageController extends BaseController {
         }
 
         return ThreadLocalUtil.getTemplateDir() + "book/book_content";
+    }
+
+    private <T> CompletableFuture<T> submitReadingPageTask(Supplier<T> task) {
+        try {
+            return CompletableFuture.supplyAsync(task, threadPoolExecutor);
+        } catch (RejectedExecutionException exception) {
+            throw readingPageOverloaded(exception);
+        }
+    }
+
+    private <T> T awaitReadingPageTask(CompletableFuture<T> task)
+        throws ExecutionException, InterruptedException {
+        try {
+            return task.get();
+        } catch (ExecutionException exception) {
+            RejectedExecutionException rejection = findExecutorRejection(exception);
+            if (rejection != null) {
+                throw readingPageOverloaded(rejection);
+            }
+            throw exception;
+        }
+    }
+
+    private RejectedExecutionException findExecutorRejection(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof RejectedExecutionException rejection) {
+                return rejection;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private ResponseStatusException readingPageOverloaded(RejectedExecutionException exception) {
+        meterRegistry.counter("novel.chapter.request.rejected").increment();
+        log.warn("Reading page task rejected by executor");
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+            "Reading page temporarily unavailable", exception);
     }
 
     private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
@@ -348,7 +393,7 @@ public class PageController extends BaseController {
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ModelAndView chapterNotFound(ResponseStatusException exception) {
+    public ModelAndView pageStatus(ResponseStatusException exception) {
         return new ModelAndView("404", exception.getStatusCode());
     }
 

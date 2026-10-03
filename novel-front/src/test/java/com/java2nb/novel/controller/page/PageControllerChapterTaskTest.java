@@ -13,6 +13,7 @@ import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.NewsService;
 import com.java2nb.novel.service.UserService;
 import com.java2nb.novel.vo.BookIndexNavigationVO;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -42,7 +43,7 @@ class PageControllerChapterTaskTest {
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
         when(books.findBookIndex(1L, 100L)).thenReturn(Optional.empty());
         PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
-            users, new CountingDirectExecutor(), Map.of("db", contents), registrar);
+            users, new CountingDirectExecutor(), Map.of("db", contents), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
         assertThatThrownBy(() -> controller.bookContent(1L, 100L, new MockHttpServletRequest(), model))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -61,7 +62,7 @@ class PageControllerChapterTaskTest {
         when(books.findBookIndex(1L, 100L)).thenReturn(Optional.empty());
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
         PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar);
+            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar, new SimpleMeterRegistry());
         org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new com.java2nb.novel.core.advice.CommonExceptionHandler())
             .build().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/book/1/100.html"))
@@ -76,7 +77,7 @@ class PageControllerChapterTaskTest {
         when(books.findBookIndex(999L, 100L)).thenReturn(Optional.empty());
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
         PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar);
+            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar, new SimpleMeterRegistry());
         org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
             .setControllerAdvice(new com.java2nb.novel.core.advice.CommonExceptionHandler())
             .build().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/book/999/100.html"))
@@ -110,7 +111,7 @@ class PageControllerChapterTaskTest {
 
         PageController controller = new PageController(
             bookService, mock(NewsService.class), mock(AuthorService.class), userService, executor,
-            Map.of("db", contentService), registrar);
+            Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
@@ -161,7 +162,7 @@ class PageControllerChapterTaskTest {
 
         PageController controller = new PageController(
             bookService, mock(NewsService.class), mock(AuthorService.class), userService, executor,
-            Map.of("db", contentService), registrar);
+            Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         controller.setJwtTokenUtil(jwtTokenUtil);
 
         ExtendedModelMap anonymousModel = new ExtendedModelMap();
@@ -198,7 +199,7 @@ class PageControllerChapterTaskTest {
         content.setContent("locked chapter text");
         when(contentService.queryBookContent(1L, 100L)).thenReturn(content);
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), executor, Map.of("db", contentService), registrar);
+            mock(UserService.class), executor, Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
@@ -224,7 +225,7 @@ class PageControllerChapterTaskTest {
         when(bookService.queryBookIndexNavigation(1L, 10)).thenReturn(new BookIndexNavigationVO(99L, 101L));
         when(contentService.queryBookContent(1L, 100L)).thenReturn(null);
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), executor, Map.of("db", contentService), registrar);
+            mock(UserService.class), executor, Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
@@ -247,7 +248,8 @@ class PageControllerChapterTaskTest {
         when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.findBook(1L)).thenReturn(Optional.empty());
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar);
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
 
         assertThatThrownBy(() -> controller.bookContent(
             1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))
@@ -267,7 +269,8 @@ class PageControllerChapterTaskTest {
         when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar);
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
 
         assertThatThrownBy(() -> controller.bookContent(
             1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))
@@ -290,7 +293,8 @@ class PageControllerChapterTaskTest {
         when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
         when(contentService.queryBookContent(1L, 100L)).thenReturn(content);
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar);
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
 
         assertThatThrownBy(() -> controller.bookContent(
             1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))

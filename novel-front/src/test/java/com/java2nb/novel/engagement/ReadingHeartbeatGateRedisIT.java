@@ -71,9 +71,83 @@ class ReadingHeartbeatGateRedisIT {
 
         Object createdAtMillis = redisTemplate.opsForHash().get(pageKey(pageVisitId), "createdAtMillis");
         assertThat(createdAtMillis).asString().matches("[1-9]\\d*");
+        assertThat(redisTemplate.getExpire(pageKey(pageVisitId), TimeUnit.SECONDS))
+            .isBetween(7_199L, 7_200L);
         assertThat(gate.evaluate(new ReadingHeartbeatCommand(
             42L, 99L, pageVisitId, 1L, sessionHash, ipHmac, STAT_DATE)))
             .isEqualTo(ReadingHeartbeatOutcome.TOO_EARLY);
+    }
+
+    @Test
+    void acceptedHeartbeatRefreshesThePageIdleTtl() {
+        TestPage page = newPage(42L, 99L, BASE_TIME_MILLIS);
+        setShortPageTtl(page);
+
+        assertThat(evaluateAt(page, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
+        assertThat(redisTemplate.getExpire(pageKey(page.pageVisitId()), TimeUnit.SECONDS))
+            .isBetween(7_199L, 7_200L);
+    }
+
+    @Test
+    void rejectedHeartbeatsDoNotRefreshThePageIdleTtl() {
+        TestPage tooEarly = newPage(42L, 99L, BASE_TIME_MILLIS);
+        setShortPageTtl(tooEarly);
+        assertThat(evaluateAt(tooEarly, 1L, BASE_TIME_MILLIS + 9_999L))
+            .isEqualTo(ReadingHeartbeatOutcome.TOO_EARLY);
+        assertPageTtlStayedShort(tooEarly);
+
+        TestPage duplicate = newPage(43L, 99L, BASE_TIME_MILLIS);
+        assertThat(evaluateAt(duplicate, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.ACCEPTED);
+        setShortPageTtl(duplicate);
+        assertThat(evaluateAt(duplicate, 1L, BASE_TIME_MILLIS + 20_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.DUPLICATE);
+        assertPageTtlStayedShort(duplicate);
+
+        TestPage sessionLimited = newPage(44L, 99L, BASE_TIME_MILLIS);
+        properties.setSessionLimit(0);
+        setShortPageTtl(sessionLimited);
+        assertThat(evaluateAt(sessionLimited, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.SESSION_RATE_LIMITED);
+        assertPageTtlStayedShort(sessionLimited);
+
+        TestPage ipLimited = newPage(45L, 99L, BASE_TIME_MILLIS);
+        properties.setSessionLimit(100);
+        properties.setIpLimit(0);
+        setShortPageTtl(ipLimited);
+        assertThat(evaluateAt(ipLimited, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.IP_RATE_LIMITED);
+        assertPageTtlStayedShort(ipLimited);
+
+        TestPage capped = newPage(46L, 99L, BASE_TIME_MILLIS);
+        properties.setIpLimit(100);
+        properties.setDailyCapSeconds(0);
+        setShortPageTtl(capped);
+        assertThat(evaluateAt(capped, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.DAILY_CAP_REACHED);
+        assertPageTtlStayedShort(capped);
+
+        TestPage legacyPage = newPage(47L, 99L, BASE_TIME_MILLIS);
+        redisTemplate.opsForHash().delete(pageKey(legacyPage.pageVisitId()), "createdAtMillis");
+        setShortPageTtl(legacyPage);
+        assertThat(evaluateAt(legacyPage, 1L, BASE_TIME_MILLIS + 10_000L))
+            .isEqualTo(ReadingHeartbeatOutcome.INVALID_PAGE);
+        assertPageTtlStayedShort(legacyPage);
+    }
+
+    @Test
+    void redisScriptFailureDoesNotRefreshThePageIdleTtl() {
+        TestPage page = newPage(48L, 99L, BASE_TIME_MILLIS);
+        exactCleanupKeys.addAll(transitionKeys(page));
+        redisTemplate.opsForValue().set(sessionRateKey(page.sessionHash()), "wrong-type", Duration.ofMinutes(1));
+        setShortPageTtl(page);
+
+        assertThat(gate.evaluate(new ReadingHeartbeatCommand(
+            page.bookId(), page.chapterId(), page.pageVisitId(), 1L,
+            page.sessionHash(), page.ipHmac(), STAT_DATE)))
+            .isEqualTo(ReadingHeartbeatOutcome.REDIS_ERROR);
+        assertPageTtlStayedShort(page);
     }
 
     @AfterEach
@@ -296,6 +370,15 @@ class ReadingHeartbeatGateRedisIT {
             String.valueOf(properties.creditKeyTtl().toSeconds()),
             String.valueOf(properties.pageTtl().toSeconds()), page.pageVisitId() + ":" + sequence);
         return outcome(result);
+    }
+
+    private void setShortPageTtl(TestPage page) {
+        assertThat(redisTemplate.expire(pageKey(page.pageVisitId()), Duration.ofSeconds(60))).isTrue();
+    }
+
+    private void assertPageTtlStayedShort(TestPage page) {
+        assertThat(redisTemplate.getExpire(pageKey(page.pageVisitId()), TimeUnit.SECONDS))
+            .isBetween(1L, 60L);
     }
 
     private List<String> transitionKeys(TestPage page) {

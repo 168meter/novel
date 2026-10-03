@@ -46,6 +46,7 @@ public class ReadingHeartbeatGate {
         redis.call('ZADD', KEYS[4], now, ARGV[14])
         redis.call('EXPIRE', KEYS[4], tonumber(ARGV[11]))
         redis.call('SET', KEYS[5], credited + creditSeconds, 'EX', tonumber(ARGV[12]))
+        redis.call('EXPIRE', KEYS[1], tonumber(ARGV[13]))
         return 1
         """, Long.class);
 
