@@ -22,6 +22,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 
@@ -53,7 +54,18 @@ public class CommonExceptionHandler {
             return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
                 .body(RestResult.fail(SysResultCode.PARAM_ERROR));
         }
-        return new ModelAndView("404", HttpStatus.BAD_REQUEST);
+        return new ModelAndView("404", HttpStatus.BAD_REQUEST).addObject("errorStatus", 400);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Object handleMissingResource(HttpServletRequest request, NoResourceFoundException e) {
+        if (isJsonRequest(request)) {
+            RestResult<Void> result = RestResult.error();
+            result.setCode(404);
+            result.setMsg("请求的内容不存在");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body(result);
+        }
+        return new ModelAndView("404", HttpStatus.NOT_FOUND).addObject("errorStatus", 404);
     }
 
     @ExceptionHandler({BusinessException.class})
@@ -71,7 +83,7 @@ public class CommonExceptionHandler {
                 .body(RestResult.error());
         } else {
             // Reuse the existing safe error template while preserving the real server status.
-            return new ModelAndView("404", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ModelAndView("404", HttpStatus.INTERNAL_SERVER_ERROR).addObject("errorStatus", 500);
         }
     }
 

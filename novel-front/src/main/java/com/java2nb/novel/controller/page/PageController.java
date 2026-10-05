@@ -394,7 +394,8 @@ public class PageController extends BaseController {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ModelAndView pageStatus(ResponseStatusException exception) {
-        return new ModelAndView("404", exception.getStatusCode());
+        return new ModelAndView("404", exception.getStatusCode())
+            .addObject("errorStatus", exception.getStatusCode().value());
     }
 
     /**

@@ -118,11 +118,6 @@ var AuthPage = (function ($) {
         message("#loginError", responseMessage(response));
     }
 
-    function safeOriginUrl() {
-        var origin = getSearchString("originUrl");
-        return origin && origin.charAt(0) === "/" && origin.charAt(1) !== "/" ? origin : "/";
-    }
-
     function initLogin() {
         if (localStorage.getItem("autoLogin") === "1") {
             $("#autoLogin").prop("checked", true);

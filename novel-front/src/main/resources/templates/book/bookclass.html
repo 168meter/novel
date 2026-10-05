@@ -184,6 +184,9 @@
                             "                    <td class=\"word\">" + wordCount + "万</td>\n" +
                             "                </tr>");
                     }
+                    if (bookList.length === 0) {
+                        bookListHtml = '<tr><td colspan="6" style="padding:32px;text-align:center;color:#666;">没有找到相关书籍，可尝试其他关键词或调整筛选条件。</td></tr>';
+                    }
                     $("#bookList").html(bookListHtml);
 
                     layui.use('laypage', function () {

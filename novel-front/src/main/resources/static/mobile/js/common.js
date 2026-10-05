@@ -37,6 +37,23 @@ function searchByK(k) {
     }
 }
 
+function safeOriginUrl() {
+    try {
+        var origin = getSearchString("originUrl");
+        if (!origin || origin !== origin.trim() || /[\u0000-\u001f\u007f\\]/.test(origin) || origin.indexOf("//") === 0) {
+            return "/";
+        }
+        var target = new URL(origin, window.location.origin + "/");
+        if (target.origin !== window.location.origin || !/^https?:$/.test(target.protocol) || target.username || target.password) {
+            return "/";
+        }
+        var path = target.pathname + target.search + target.hash;
+        return path.indexOf("//") === 0 ? "/" : path;
+    } catch (invalidOrigin) {
+        return "/";
+    }
+}
+
 $("#searchKey").keypress(function (even) {
     if (even.which == 13) {
         even.stopPropagation();
@@ -123,8 +140,7 @@ if (!token) {
                 //     "\n" +
                 //     "</i></a>");
                 if ("/user/login.html" == window.location.pathname) {
-                    var orginUrl = getSearchString("originUrl");
-                    window.location.href = orginUrl == undefined || orginUrl.isBlank() ? "/" : orginUrl;
+                    window.location.href = safeOriginUrl();
                     return;
                 }
                 isLogin = true;

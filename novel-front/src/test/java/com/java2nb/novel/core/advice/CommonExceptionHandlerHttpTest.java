@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.View;
 import org.springframework.web.servlet.ViewResolver;
+import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -73,6 +74,45 @@ class CommonExceptionHandlerHttpTest {
             .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
 
+    @Test
+    void unknownPageHandledByMvcResourceHandlerReturnsHtml404() throws Exception {
+        ResourceHttpRequestHandler resources = new ResourceHttpRequestHandler();
+        resources.afterPropertiesSet();
+        MockMvc resourceMvc = MockMvcBuilders.standaloneSetup(new MissingResourcePageController(resources))
+            .setControllerAdvice(new CommonExceptionHandler())
+            .setViewResolvers((viewName, locale) -> (model, request, response) -> {
+                response.setContentType(MediaType.TEXT_HTML_VALUE);
+                response.getWriter().write("error-page-marker");
+            }).build();
+        resourceMvc.perform(get("/not-a-real-page").accept(MediaType.TEXT_HTML)
+                .requestAttr(org.springframework.web.servlet.HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE,
+                    "not-a-real-page"))
+            .andExpect(status().isNotFound())
+            .andExpect(content().string("error-page-marker"));
+    }
+
+    @Test
+    void unrelatedNoSuchElementExceptionStillReturns500() throws Exception {
+        mockMvc.perform(get("/test/api-missing-internal-state"))
+            .andExpect(status().isInternalServerError());
+    }
+
+    @Controller
+    static class MissingResourcePageController {
+        private final ResourceHttpRequestHandler resources;
+
+        MissingResourcePageController(ResourceHttpRequestHandler resources) {
+            this.resources = resources;
+        }
+
+        @GetMapping("/not-a-real-page")
+        void missing(jakarta.servlet.http.HttpServletRequest request,
+                     jakarta.servlet.http.HttpServletResponse response) throws Exception {
+            // Exercise Spring's real missing-resource exception with standalone MockMvc.
+            resources.handleRequest(request, response);
+        }
+    }
+
     @Controller
     static class FailingPageController {
         @GetMapping("/test/page-failure")
@@ -83,6 +123,11 @@ class CommonExceptionHandlerHttpTest {
 
     @RestController
     static class FailingApiController {
+        @GetMapping("/test/api-missing-internal-state")
+        RestResult<Void> missingInternalState() {
+            throw new java.util.NoSuchElementException("private internal state");
+        }
+
         @GetMapping("/test/api-failure")
         RestResult<Void> fail() {
             throw new IllegalStateException("private failure detail");

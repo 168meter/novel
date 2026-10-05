@@ -17,6 +17,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -95,8 +97,15 @@ public class BookController extends BaseController {
      * 查询小说详情信息
      */
     @GetMapping("queryBookDetail/{id}")
-    public RestResult<Book> queryBookDetail(@PathVariable("id") Long id) {
-        return RestResult.ok(bookService.queryBookDetail(id));
+    public ResponseEntity<RestResult<Book>> queryBookDetail(@PathVariable("id") Long id) {
+        return bookService.findBook(id)
+            .map(book -> ResponseEntity.ok(RestResult.ok(book)))
+            .orElseGet(() -> {
+                RestResult<Book> result = RestResult.ok((Book) null);
+                result.setCode(404);
+                result.setMsg("请求的内容不存在");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(result);
+            });
     }
 
 
