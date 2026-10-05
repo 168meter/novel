@@ -22,6 +22,12 @@ function Invoke-Json([string]$Uri, [hashtable]$Headers = @{}) {
 }
 
 function Invoke-PrometheusQuery([string]$Query) {
+    # Every runtime assertion must use the currently validated application target.
+    $instance = $frontTargets[0].labels.instance.Replace('\', '\\').Replace('"', '\"')
+    $scope = 'instance="' + $instance + '"'
+    if ($Query -notmatch 'job=') { $scope += ',job="novel-front"' }
+    if ($Query.Contains('{')) { $Query = $Query.Replace('{', '{' + $scope + ',') }
+    else { $Query += '{' + $scope + '}' }
     $encoded = [Uri]::EscapeDataString($Query)
     $response = Invoke-Json "$PrometheusUrl/api/v1/query?query=$encoded"
     if ($response.status -ne 'success') {
@@ -73,13 +79,16 @@ foreach ($metric in @(
     Write-Pass "Prometheus contains $metric"
 }
 
-# The retry counter is created only on the first actual retry; absence on a
-# clean startup is not a monitoring failure. Do not manufacture a zero series.
-$retrySeries = Invoke-PrometheusQuery 'novel_reading_kafka_retry_total'
-if ($retrySeries.Count -gt 0) {
-    Write-Pass 'Prometheus contains novel_reading_kafka_retry_total'
-} else {
-    Write-Host 'INFO: Reading retry series is absent; expected before the first retry.'
+# Failure counters now have a startup zero baseline; absence is a monitoring failure.
+foreach ($metric in @('novel_reading_kafka_retry_total', 'novel_book_visit_kafka_retry_total',
+    'novel_book_visit_kafka_dlt_total', 'novel_chapter_request_rejected_total')) {
+    if (@(Invoke-PrometheusQuery $metric).Count -eq 0) { throw "Missing startup counter: $metric" }
+}
+foreach ($query in @(
+    'kafka_consumer_connection_count{job="novel-front",spring_id=~"readingEngagementConsumerFactory[.].*"}',
+    'kafka_consumer_fetch_manager_records_lag{job="novel-front",topic="novel-reading-engagement-v1"}'
+)) {
+    if (@(Invoke-PrometheusQuery $query).Count -eq 0) { throw "Missing reading client metric: $query" }
 }
 
 $executorQueries = @(
@@ -102,6 +111,9 @@ $rules = Invoke-Json "$PrometheusUrl/api/v1/rules"
 $loadedAlerts = @($rules.data.groups.rules | Where-Object { $_.type -eq 'alerting' } | ForEach-Object { $_.name })
 $expectedAlerts = @(
     'NovelFrontDown'
+    'ChapterHttp5xxHigh'
+    'ChapterHttp503Observed'
+    'ReadingConsumerMetricsMissing'
     'ChapterCacheErrors'
     'LowChapterCacheHitRate'
     'KafkaPublishFailures'
@@ -150,20 +162,18 @@ $dashboard = Invoke-Json "$GrafanaUrl/api/dashboards/uid/novel-plus-overview" $g
 if ($dashboard.dashboard.uid -ne 'novel-plus-overview') {
     throw 'Grafana Novel-Plus dashboard is not provisioned.'
 }
-$panelTitles = @($dashboard.dashboard.panels | ForEach-Object { $_.title })
-foreach ($panelTitle in @(
-    'Front Executor Utilization', 'Front Executor Queue / Rejections',
-    'Reading Persisted Seconds / s', 'Reading Deduplicated Events / s',
-    'Reading Daily Rows Updated / s', 'Reading Kafka Retry / DLT', 'Reading Dedup Cleanup'
-    'Home Recommendation Sources', 'Home Recommendation Refresh Outcomes',
-    'Home Recommendation Generation Duration', 'Home Recommendation Local Snapshot Age',
-    'Authentication Login / Captcha Requests', 'Authentication Captcha Verify / Mail',
-    'Authentication Password Upgrade / JWT', 'Authentication Argon2 Average Duration'
-)) {
-    if ($panelTitle -notin $panelTitles) {
-        throw "Grafana executor panel is missing: $panelTitle"
+$corePanels = @($dashboard.dashboard.panels | Where-Object { $_.type -ne 'row' })
+if ($corePanels.Count -ne 12) { throw 'Grafana Benchmark Overview must have exactly 12 core panels.' }
+$tracked = Get-Content (Join-Path $PSScriptRoot '../monitoring/grafana/dashboards/novel-plus-overview.json') -Raw | ConvertFrom-Json
+foreach ($expected in $tracked.panels) {
+    $actual = @($corePanels | Where-Object { $_.id -eq $expected.id })
+    if ($actual.Count -ne 1 -or $actual[0].title -ne $expected.title -or
+        ($actual[0].targets.expr -join "`n") -ne ($expected.targets.expr -join "`n")) {
+        throw "Grafana provisioned panel/query differs from tracked definition: $($expected.id)"
     }
 }
+$dsHealth = Invoke-Json "$GrafanaUrl/api/datasources/uid/prometheus/health" $grafanaHeaders
+if ($dsHealth.status -ne 'OK') { throw 'Grafana cannot query Prometheus.' }
 Write-Pass 'Grafana Novel-Plus dashboard is provisioned'
 
 Write-Host 'Observability runtime verification passed.' -ForegroundColor Green

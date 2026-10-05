@@ -18,6 +18,8 @@
 
 Windows 本地环境的可配置端口、标准启动入口与恢复验证见 [本地开发指南](docs/local-development.md)。
 
+Benchmark 主 Dashboard、指标语义与云端监控验收见 [Benchmark observability](docs/benchmark-observability.md)。
+
 novel-plus 是一个多端（PC、WAP）阅读，功能完善的原创文学 CMS
 系统。由前台门户系统、作家后台管理系统、平台后台管理系统和爬虫管理系统等多个子系统构成，包括小说推荐、作品检索、小说排行、小说阅读、小说评论、会员中心、作家专区等功能，支持自定义多模版、可拓展的多种小说内容存储方式（内置数据库分表存储和
 TXT 文本存储）、阅读主题切换、多爬虫源自动采集和更新数据、AI写作、会员充值、订阅模式、新闻发布和实时统计报表。

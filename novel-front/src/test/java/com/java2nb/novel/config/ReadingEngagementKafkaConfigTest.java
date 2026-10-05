@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration;
 import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
+import org.springframework.boot.actuate.autoconfigure.metrics.KafkaMetricsAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
@@ -36,6 +37,21 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.mock;
 
 class ReadingEngagementKafkaConfigTest {
+
+    @Test
+    void exposesDedicatedReadingConsumerClientMetricsAndRemovesThemOnClose() {
+        contextRunner.withConfiguration(AutoConfigurations.of(KafkaMetricsAutoConfiguration.class))
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                var registry = context.getBean(SimpleMeterRegistry.class);
+                var factory = context.getBean("readingEngagementConsumerFactory",
+                    DefaultKafkaConsumerFactory.class);
+                try (Consumer<?, ?> consumer = factory.createConsumer("metrics-test", "reading-metrics-test", "")) {
+                    assertThat(registry.find("kafka.consumer.connection.count").gauge()).isNotNull();
+                }
+                assertThat(registry.find("kafka.consumer.connection.count").gauge()).isNull();
+            });
+    }
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(KafkaAutoConfiguration.class))
@@ -57,7 +73,7 @@ class ReadingEngagementKafkaConfigTest {
         NewTopic topic = config.readingEngagementTopic();
         NewTopic dlt = config.readingEngagementDltTopic();
         DefaultKafkaConsumerFactory<Long, ReadingEngagementEvent> consumerFactory =
-            config.readingEngagementConsumerFactory(springProperties);
+            config.readingEngagementConsumerFactory(springProperties, new SimpleMeterRegistry());
         DefaultErrorHandler errorHandler = config.readingEngagementErrorHandler(
             mock(KafkaTemplate.class), new SimpleMeterRegistry());
         ConcurrentKafkaListenerContainerFactory<Long, ReadingEngagementEvent> listenerFactory =
