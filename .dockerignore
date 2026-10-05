@@ -1,6 +1,8 @@
 *
 !.dockerignore
 !pom.xml
+!novel-cache-contract/pom.xml
+!novel-cache-contract/src/**
 !novel-common/
 !novel-common/pom.xml
 !novel-common/src/
