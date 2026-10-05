@@ -22,8 +22,8 @@ Assert-FileContains $kafkaCheck 'MaxConnectionsPerServer\s*=\s*\$MaxConcurrency'
 $compose = Join-Path $root 'compose.local.yml'
 Assert-FileContains $compose '^\s{2}prometheus:\s*$'
 Assert-FileContains $compose '^\s{2}grafana:\s*$'
-Assert-FileContains $compose '127\.0\.0\.1:9090:9090'
-Assert-FileContains $compose '127\.0\.0\.1:3000:3000'
+Assert-FileContains $compose ([regex]::Escape('127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090'))
+Assert-FileContains $compose ([regex]::Escape('127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000'))
 
 $prometheus = Join-Path $root 'monitoring/prometheus/prometheus.yml'
 Assert-FileContains $prometheus 'host\.docker\.internal:8084'

@@ -84,8 +84,8 @@ $composeText = Get-Content -LiteralPath $compose -Raw
 foreach ($required in @(
     'mailpit:'
     'axllent/mailpit:v1.31.1'
-    '127.0.0.1:1025:1025'
-    '127.0.0.1:8025:8025'
+    '127.0.0.1:${MAILPIT_SMTP_HOST_PORT:-1025}:1025'
+    '127.0.0.1:${MAILPIT_UI_HOST_PORT:-8025}:8025'
     '"/mailpit", "readyz"'
 )) {
     if ($composeText -notmatch [regex]::Escape($required)) {
