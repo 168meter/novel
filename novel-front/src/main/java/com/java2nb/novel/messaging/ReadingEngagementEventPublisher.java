@@ -24,6 +24,10 @@ public class ReadingEngagementEventPublisher {
     private final ReadingEngagementKafkaProperties properties;
     private final Counter successCounter;
     private final Counter failedCounter;
+    private final Counter submitAttemptedCounter;
+    private final Counter submittedCounter;
+    private final Counter producerSendSuccessCounter;
+    private final Counter producerSendFailureCounter;
     private final AtomicLong failureCount = new AtomicLong();
 
     public ReadingEngagementEventPublisher(
@@ -38,6 +42,20 @@ public class ReadingEngagementEventPublisher {
             "novel.reading.kafka.send", "result", "success");
         this.failedCounter = meterRegistry.counter(
             "novel.reading.kafka.send", "result", "failed");
+        this.submitAttemptedCounter = Counter.builder("novel.reading.kafka.submit.attempted")
+            .description("Attempts to submit reading events to the Kafka producer")
+            .register(meterRegistry);
+        this.submittedCounter = Counter.builder("novel.reading.kafka.submitted")
+            .description("Reading event submissions accepted with a producer future")
+            .register(meterRegistry);
+        this.producerSendSuccessCounter = Counter.builder("novel.reading.kafka.producer.send")
+            .tag("result", "success")
+            .description("Kafka producer send completions for reading events")
+            .register(meterRegistry);
+        this.producerSendFailureCounter = Counter.builder("novel.reading.kafka.producer.send")
+            .tag("result", "failed")
+            .description("Kafka producer send failures for reading events")
+            .register(meterRegistry);
     }
 
     public void publish(
@@ -47,24 +65,32 @@ public class ReadingEngagementEventPublisher {
         Instant occurredAt,
         LocalDate statDate
     ) {
+        boolean sendAttempted = false;
         try {
             ReadingEngagementEvent event = ReadingEngagementEvent.create(
                 bookId, chapterId, creditedSeconds, occurredAt, statDate);
-            kafkaTemplate.send(properties.topic(), bookId, event)
-                .whenComplete((result, failure) -> {
-                    if (failure == null) {
-                        successCounter.increment();
-                    } else {
-                        recordFailure();
-                    }
-                });
+            submitAttemptedCounter.increment();
+            sendAttempted = true;
+            var sendFuture = kafkaTemplate.send(properties.topic(), bookId, event);
+            submittedCounter.increment();
+            sendFuture.whenComplete((result, failure) -> {
+                if (failure == null) {
+                    successCounter.increment();
+                    producerSendSuccessCounter.increment();
+                } else {
+                    recordFailure(true);
+                }
+            });
         } catch (RuntimeException failure) {
-            recordFailure();
+            recordFailure(sendAttempted);
         }
     }
 
-    private void recordFailure() {
+    private void recordFailure(boolean producerSendAttempted) {
         failedCounter.increment();
+        if (producerSendAttempted) {
+            producerSendFailureCounter.increment();
+        }
         long totalFailures = failureCount.incrementAndGet();
         if (totalFailures == 1L || totalFailures % FAILURE_LOG_INTERVAL == 0L) {
             log.warn("Kafka reading engagement publish failures={}", totalFailures);

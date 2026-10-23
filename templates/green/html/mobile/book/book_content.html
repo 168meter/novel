@@ -333,17 +333,7 @@
 <script language="javascript">getset1()</script>
 <script language="javascript">
     var books = localStorage.getItem("historyBooks");
-    var item = parseInt($("#bookIdHidden").val());
-    if (books) {
-        var booksArr = JSON.parse(books);
-        if (booksArr.length >= 50) {
-            booksArr.splice(0, 1);
-        }
-        booksArr.remove(item);
-        booksArr[booksArr.length] = item;
-    } else {
-        var booksArr = [item];
-    }
+    var booksArr = rememberHistoryBook(books, $("#bookIdHidden").val());
 
     localStorage.setItem("historyBooks", JSON.stringify(booksArr));//
 

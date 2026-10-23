@@ -3,6 +3,7 @@ package com.java2nb.novel.service.impl;
 import com.java2nb.novel.entity.BookContent;
 import com.java2nb.novel.mapper.BookContentDynamicSqlSupport;
 import com.java2nb.novel.mapper.BookContentMapper;
+import com.java2nb.novel.mapper.BookIndexMapper;
 import com.java2nb.novel.service.BookContentService;
 import com.java2nb.novel.service.cache.ChapterContentCache;
 import lombok.RequiredArgsConstructor;
@@ -21,9 +22,24 @@ public class DbBookContentServiceImpl implements BookContentService {
 
     private final BookContentMapper bookContentMapper;
     private final ChapterContentCache chapterContentCache;
+    private final BookIndexMapper bookIndexMapper;
 
     @Override
     public BookContent queryBookContent(Long bookId, Long bookIndexId) {
+        if (bookId == null || bookIndexId == null || bookId <= 0 || bookIndexId <= 0
+            || bookIndexMapper.selectByPrimaryKey(bookIndexId)
+                .filter(index -> bookId.equals(index.getBookId())).isEmpty()) {
+            return null;
+        }
+        return loadContent(bookId, bookIndexId);
+    }
+
+    @Override
+    public BookContent queryBookContent(com.java2nb.novel.service.BookService.OwnedChapter chapter) {
+        return chapter == null ? null : loadContent(chapter.bookId(), chapter.chapterId());
+    }
+
+    private BookContent loadContent(Long bookId, Long bookIndexId) {
         return chapterContentCache.getOrLoad(bookId, bookIndexId, () -> {
             SelectStatementProvider selectStatement = select(BookContentDynamicSqlSupport.id, BookContentDynamicSqlSupport.content)
                 .from(bookContent)

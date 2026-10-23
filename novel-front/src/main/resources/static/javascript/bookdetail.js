@@ -99,14 +99,7 @@
             layer.alert('评论内容必须填写');
             return;
         }
-        if (cmtDetailTemp.length < 5) {
-            layer.alert('评论内容必须大于5个字');
-            return;
-        }
-        if (cmtDetail.length < 5) {
-            layer.alert('评论内容必须大于5个字');
-            return;
-        }
+        if (Array.from(cmtDetail).length > 512) {layer.alert('评论最多512字');return;}
         $.ajax({
             type: "POST",
             url: "/book/addBookComment",
@@ -115,8 +108,8 @@
             success: function (data) {
                 if (data.code == 200) {
                     $('#txtComment').val("")
-                    layer.alert('评价成功！');
-                    loadCommentList();
+                    layer.alert('已提交，审核后展示；可在我的书评查看状态');
+                    loadCommentList(1,20);
 
                 } else if (data.code == 1001) {
                     //未登录
@@ -145,14 +138,7 @@
             layer.alert('回复内容必须填写');
             return;
         }
-        if (cmtDetailTemp.length < 5) {
-            layer.alert('回复内容必须大于5个字');
-            return;
-        }
-        if (cmtDetail.length < 5) {
-            layer.alert('回复内容必须大于5个字');
-            return;
-        }
+        if (Array.from(cmtDetail).length > 512) {layer.alert('回复最多512字');return;}
         $.ajax({
             type: "POST",
             url: "/book/addCommentReply",
@@ -161,7 +147,7 @@
             success: function (data) {
                 if (data.code == 200) {
                     $('#txtComment').val("")
-                    layer.alert('回复成功！');
+                    layer.alert('已提交，审核后展示；可在我的书评查看回复状态');
                     loadCommentList(1, 20);
 
                 } else if (data.code == 1001) {

@@ -19,7 +19,7 @@ public interface FrontBookMapper extends BookMapper {
 
     List<Book> listRecBookByCatId(@Param("catId") Integer catId);
 
-    void addCommentCount(@Param("bookId") Long bookId);
+    int addCommentCount(@Param("bookId") Long bookId);
 
     List<Book> queryNetworkPicBooks(@Param("localPicPrefix") String localPicPrefix, @Param("limit") Integer limit);
 

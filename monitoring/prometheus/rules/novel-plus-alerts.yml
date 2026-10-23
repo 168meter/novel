@@ -2,7 +2,7 @@ groups:
   - name: novel-plus
     rules:
       - alert: NovelFrontDown
-        expr: up{job="novel-front"} == 0
+        expr: (up{job="novel-front"} == 0) or absent(up{job="novel-front"})
         for: 1m
         labels:
           severity: critical
@@ -12,9 +12,9 @@ groups:
 
       - alert: ChapterCacheErrors
         expr: >-
-          sum(increase(novel_chapter_cache_lookup_total{result="error"}[5m]))
-          + sum(increase(novel_chapter_cache_write_total{result="error"}[5m]))
-          + sum(increase(novel_chapter_cache_lock_total{result="error"}[5m])) > 0
+          sum by (job, instance) (increase(novel_chapter_cache_lookup_total{job="novel-front", result="error"}[5m]))
+          + sum by (job, instance) (increase(novel_chapter_cache_write_total{job="novel-front", result="error"}[5m]))
+          + sum by (job, instance) (increase(novel_chapter_cache_lock_total{job="novel-front", result="error"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -23,9 +23,9 @@ groups:
 
       - alert: LowChapterCacheHitRate
         expr: >-
-          sum(increase(novel_chapter_cache_lookup_total{result="hit"}[5m]))
-          / clamp_min(sum(increase(novel_chapter_cache_lookup_total[5m])), 1) < 0.90
-          and sum(increase(novel_chapter_cache_lookup_total[5m])) >= 100
+          sum by (job, instance) (increase(novel_chapter_cache_lookup_total{job="novel-front", result="hit"}[5m]))
+          / sum by (job, instance) (increase(novel_chapter_cache_lookup_total{job="novel-front"}[5m])) < 0.90
+          and sum by (job, instance) (increase(novel_chapter_cache_lookup_total{job="novel-front"}[5m])) >= 100
         for: 2m
         labels:
           severity: warning
@@ -34,7 +34,7 @@ groups:
           description: Request-level chapter cache hit rate stayed below 90 percent with at least 100 lookups.
 
       - alert: KafkaPublishFailures
-        expr: sum(increase(novel_book_visit_kafka_send_total{result="failed"}[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_book_visit_kafka_send_total{job="novel-front", result="failed"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -42,7 +42,7 @@ groups:
           description: At least one book visit event failed to publish during the last five minutes.
 
       - alert: ReadingEngagementRedisErrors
-        expr: sum(increase(novel_reading_heartbeat_total{result="redis_error"}[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_reading_heartbeat_total{job="novel-front", result="redis_error"}[5m])) > 0
         for: 1m
         labels:
           severity: warning
@@ -51,7 +51,7 @@ groups:
           description: The five-minute reading gate error signal has remained positive for one minute.
 
       - alert: ReadingEngagementKafkaPublishFailures
-        expr: sum(increase(novel_reading_kafka_send_total{result="failed"}[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_reading_kafka_send_total{job="novel-front", result="failed"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -59,16 +59,16 @@ groups:
           description: At least one accepted reading credit failed to publish during the last five minutes.
 
       - alert: KafkaConsumerLagHigh
-        expr: sum(kafka_consumer_fetch_manager_records_lag{topic="novel-book-visit-v1"}) > 10000
+        expr: sum by (job, instance) (kafka_consumer_fetch_manager_records_lag{job="novel-front", topic="novel-book-visit-v1"}) > 10000
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: Kafka consumer lag is high
-          description: Total lag for the book visit topic stayed above 10000 records.
+          description: Book visit client fetch lag per application instance stayed above 10000 records; this is not committed group or database lag.
 
       - alert: HikariPendingConnections
-        expr: sum(hikaricp_connections_pending) > 0
+        expr: sum by (job, instance) (hikaricp_connections_pending{job="novel-front"}) > 0
         for: 1m
         labels:
           severity: warning
@@ -78,8 +78,8 @@ groups:
 
       - alert: JvmHeapUsageHigh
         expr: >-
-          sum(jvm_memory_used_bytes{area="heap"})
-          / clamp_min(sum(jvm_memory_max_bytes{area="heap"}), 1) > 0.85
+          sum by (job, instance) (jvm_memory_used_bytes{job="novel-front", area="heap"})
+          / sum by (job, instance) (jvm_memory_max_bytes{job="novel-front", area="heap"} > 0) > 0.85
         for: 5m
         labels:
           severity: warning
@@ -88,7 +88,7 @@ groups:
           description: JVM heap usage stayed above 85 percent for five minutes.
 
       - alert: FrontExecutorRejectedTasks
-        expr: increase(novel_front_executor_rejections_total[5m]) > 0
+        expr: increase(novel_front_executor_rejections_total{job="novel-front"}[5m]) > 0
         labels:
           severity: warning
         annotations:
@@ -97,8 +97,8 @@ groups:
 
       - alert: FrontExecutorQueueSaturated
         expr: >-
-          executor_queue_remaining_tasks{name="novel.front.executor"} == 0
-          and executor_queued_tasks{name="novel.front.executor"} > 0
+          executor_queue_remaining_tasks{job="novel-front", name="novel.front.executor"} == 0
+          and executor_queued_tasks{job="novel-front", name="novel.front.executor"} > 0
         for: 1m
         labels:
           severity: warning
@@ -107,16 +107,16 @@ groups:
           description: The shared front-end executor queue had no remaining capacity for one minute.
 
       - alert: ReadingConsumerLagHigh
-        expr: sum(kafka_consumer_fetch_manager_records_lag{topic="novel-reading-engagement-v1"}) > 10000
+        expr: sum by (job, instance) (kafka_consumer_fetch_manager_records_lag{job="novel-front", topic="novel-reading-engagement-v1"}) > 10000
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: Reading consumer lag is high
-          description: Reading consumer lag is high; inspect the reading consumer and cleanup metrics.
+          description: Reading client fetch lag per application instance is high; this is not committed group or database lag.
 
       - alert: ReadingConsumerDltGrowth
-        expr: sum(increase(novel_reading_kafka_dlt_total[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_reading_kafka_dlt_total{job="novel-front"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -124,7 +124,7 @@ groups:
           description: Reading events moved to DLT; inspect the reading consumer and cleanup metrics.
 
       - alert: ReadingConsumerRetries
-        expr: sum(rate(novel_reading_kafka_retry_total[5m])) > 0
+        expr: sum by (job, instance) (rate(novel_reading_kafka_retry_total{job="novel-front"}[5m])) > 0
         for: 1m
         labels:
           severity: warning
@@ -133,7 +133,7 @@ groups:
           description: Reading consumer is retrying; inspect the reading consumer and cleanup metrics.
 
       - alert: ReadingConsumerDltPublishFailures
-        expr: sum(increase(novel_reading_kafka_dlt_publish_failures_total[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_reading_kafka_dlt_publish_failures_total{job="novel-front"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -149,7 +149,7 @@ groups:
           description: Reading dedup cleanup failed; inspect the reading consumer and cleanup metrics.
 
       - alert: HomeRecommendationRefreshDbErrors
-        expr: sum(increase(novel_home_recommendation_refresh_total{result="db_error"}[5m])) > 0
+        expr: sum by (job, instance) (increase(novel_home_recommendation_refresh_total{job="novel-front", result="db_error"}[5m])) > 0
         labels:
           severity: warning
         annotations:
@@ -157,7 +157,7 @@ groups:
           description: At least one home recommendation refresh failed before Redis publication during the last five minutes.
 
       - alert: HomeRecommendationSnapshotStale
-        expr: max(novel_home_recommendation_local_age_seconds) > 900
+        expr: max by (job, instance) (novel_home_recommendation_local_age_seconds{job="novel-front"}) > 900
         for: 5m
         labels:
           severity: warning
@@ -211,3 +211,38 @@ groups:
         annotations:
           summary: Password upgrades are persistently failing
           description: Best-effort legacy password upgrades have continued failing for five minutes.
+
+      - alert: ChapterHttp5xxHigh
+        expr: >-
+          sum by (job, instance) (rate(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET", status=~"5.."}[5m])) / sum by (job, instance) (rate(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET"}[5m])) > 0.05
+          and sum by (job, instance) (rate(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET"}[5m])) > 0
+          and sum by (job, instance) (increase(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET"}[5m])) >= 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Chapter HTTP server error rate is high
+          description: Chapter GET 5xx ratio exceeded 5 percent with at least 20 requests in five minutes for one minute.
+
+      - alert: ChapterHttp503Observed
+        expr: >-
+          sum by (job, instance) (increase(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET", status="503"}[5m])) > 0
+          and sum by (job, instance) (rate(http_server_requests_seconds_count{job="novel-front", uri="/book/{bookId}/{bookIndexId}.html", method="GET"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Chapter HTTP 503 responses observed
+          description: A chapter GET returned 503 during an active five-minute request window; inspect shared executor rejection and capacity.
+
+      - alert: ReadingConsumerMetricsMissing
+        expr: >-
+          up{job="novel-front"} == 1
+          unless on (job, instance)
+          (count by (job, instance) (kafka_consumer_connection_count{job="novel-front", spring_id=~"readingEngagementConsumerFactory[.].*"})
+          and count by (job, instance) (kafka_consumer_fetch_manager_records_lag{job="novel-front", topic="novel-reading-engagement-v1"}))
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reading consumer metric input is missing
+          description: A reachable application lacks reading consumer connection or topic fetch-lag series for five minutes. Check binding, assignment and whether the topic has received records; missing is not zero lag.

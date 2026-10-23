@@ -9,12 +9,14 @@ export function createReadingHeartbeat({
     setTimeoutFn,
     clearTimeoutFn,
     intervalMs = DEFAULT_INTERVAL_MS,
-    payload
+    payload,
+    onDiagnostic = () => {}
 }) {
     let timerId = null;
     let sequence = 0;
-    let started = false;
-    let destroyed = false;
+    let listenersRegistered = false;
+    let pageSuspended = false;
+    let state = 'suspended';
 
     const isActive = () =>
         documentRef.visibilityState === 'visible' && documentRef.hasFocus();
@@ -27,50 +29,102 @@ export function createReadingHeartbeat({
     };
 
     const schedule = () => {
-        if (!started || destroyed || timerId !== null || !isActive()) {
+        if (!listenersRegistered || state !== 'active' || pageSuspended
+            || timerId !== null || !isActive()) {
             return;
         }
         timerId = setTimeoutFn(onInterval, intervalMs);
     };
 
-    const onActivityChange = () => {
-        if (isActive()) {
-            schedule();
-        } else {
-            clearTimer();
+    const suspend = () => {
+        if (state === 'stopped') {
+            return;
         }
+        state = 'suspended';
+        clearTimer();
+    };
+
+    const reconcileActivity = () => {
+        if (!listenersRegistered || state === 'stopped' || pageSuspended || !isActive()) {
+            suspend();
+        } else {
+            state = 'active';
+            schedule();
+        }
+    };
+
+    const onActivityChange = () => {
+        reconcileActivity();
     };
 
     const onBlur = () => {
-        clearTimer();
+        suspend();
+    };
+
+    const onPageHide = () => {
+        if (state !== 'stopped') {
+            pageSuspended = true;
+            suspend();
+        }
+    };
+
+    const onPageShow = event => {
+        if (state === 'stopped' || event?.persisted !== true) {
+            return;
+        }
+        pageSuspended = false;
+        reconcileActivity();
     };
 
     const destroy = () => {
-        if (destroyed) {
+        if (state === 'stopped') {
             return;
         }
-        destroyed = true;
+        state = 'stopped';
+        pageSuspended = true;
         clearTimer();
+        if (!listenersRegistered) {
+            return;
+        }
+        listenersRegistered = false;
         documentRef.removeEventListener('visibilitychange', onActivityChange);
         windowRef.removeEventListener('focus', onActivityChange);
         windowRef.removeEventListener('blur', onBlur);
-        windowRef.removeEventListener('pagehide', destroy);
+        windowRef.removeEventListener('pagehide', onPageHide);
+        windowRef.removeEventListener('pageshow', onPageShow);
+    };
+
+    const handleResponse = async response => {
+        if (!response || typeof response.json !== 'function') {
+            return;
+        }
+        try {
+            const body = await response.json();
+            const outcome = body?.data?.outcome;
+            if (outcome === 'INVALID_PAGE') {
+                destroy();
+                onDiagnostic('INVALID_PAGE');
+            }
+        } catch (ignored) {
+            // Malformed or unexpected responses do not interrupt best-effort reading telemetry.
+        }
     };
 
     function onInterval() {
         timerId = null;
-        if (!started || destroyed || !isActive()) {
+        if (!listenersRegistered || state !== 'active' || pageSuspended || !isActive()) {
+            reconcileActivity();
             return;
         }
 
         sequence += 1;
         try {
-            fetchFn('/engagement/reading/heartbeat', {
+            Promise.resolve(fetchFn('/engagement/reading/heartbeat', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({...payload, sequence})
-            }).catch(() => {});
+            })).then(handleResponse).catch(() => {});
         } catch (ignored) {
             // A later full active interval remains eligible after a synchronous transport failure.
         }
@@ -79,15 +133,17 @@ export function createReadingHeartbeat({
     }
 
     const start = () => {
-        if (started || destroyed) {
+        if (listenersRegistered || state === 'stopped') {
             return;
         }
-        started = true;
+        listenersRegistered = true;
+        pageSuspended = false;
         documentRef.addEventListener('visibilitychange', onActivityChange);
         windowRef.addEventListener('focus', onActivityChange);
         windowRef.addEventListener('blur', onBlur);
-        windowRef.addEventListener('pagehide', destroy);
-        schedule();
+        windowRef.addEventListener('pagehide', onPageHide);
+        windowRef.addEventListener('pageshow', onPageShow);
+        reconcileActivity();
     };
 
     return {start, destroy};
@@ -122,7 +178,10 @@ function bootstrap() {
         setTimeoutFn: setTimeout,
         clearTimeoutFn: clearTimeout,
         intervalMs: DEFAULT_INTERVAL_MS,
-        payload
+        payload,
+        onDiagnostic: state => {
+            element.dataset.heartbeatState = state;
+        }
     }).start();
 }
 

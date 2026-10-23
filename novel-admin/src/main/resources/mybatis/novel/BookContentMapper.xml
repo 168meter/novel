@@ -49,6 +49,16 @@
 
     </select>
 
+    <select id="listCacheIdentitiesByIds" resultType="com.java2nb.novel.domain.ChapterCacheIdentityDO">
+        select bi.book_id, bc.index_id as book_index_id
+        from book_content bc
+        join book_index bi on bi.id = bc.index_id
+        where bc.id in
+        <foreach item="id" collection="ids" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <insert id="save" parameterType="com.java2nb.novel.domain.BookContentDO">
         insert into book_content
         (`id`,
@@ -77,7 +87,6 @@
     <update id="update" parameterType="com.java2nb.novel.domain.BookContentDO">
         update book_content
         <set>
-            <if test="indexId != null">`index_id` = #{indexId},</if>
             <if test="content != null">`content` = #{content}</if>
         </set>
         where id = #{id}

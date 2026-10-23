@@ -17,6 +17,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -95,8 +97,15 @@ public class BookController extends BaseController {
      * 查询小说详情信息
      */
     @GetMapping("queryBookDetail/{id}")
-    public RestResult<Book> queryBookDetail(@PathVariable("id") Long id) {
-        return RestResult.ok(bookService.queryBookDetail(id));
+    public ResponseEntity<RestResult<Book>> queryBookDetail(@PathVariable("id") Long id) {
+        return bookService.findBook(id)
+            .map(book -> ResponseEntity.ok(RestResult.ok(book)))
+            .orElseGet(() -> {
+                RestResult<Book> result = RestResult.ok((Book) null);
+                result.setCode(404);
+                result.setMsg("请求的内容不存在");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(result);
+            });
     }
 
 
@@ -113,21 +122,41 @@ public class BookController extends BaseController {
      * 增加点击次数
      */
     @PostMapping("addVisitCount")
-    public RestResult<Void> addVisitCount(Long bookId) {
-        bookVisitEventPublisher.publish(bookId);
-        return RestResult.ok();
+    public ResponseEntity<RestResult<Void>> addVisitCount(Long bookId) {
+        if (bookId == null || bookId <= 0) {
+            return ResponseEntity.badRequest().body(RestResult.fail(io.github.xxyopen.model.resp.SysResultCode.PARAM_ERROR));
+        }
+        if (!bookVisitEventPublisher.publish(bookId)) {
+            RestResult<Void> failure = RestResult.error();
+            failure.setMsg("访问统计暂不可用，发送未确认");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(failure);
+        }
+        RestResult<Void> accepted = RestResult.ok();
+        accepted.setMsg("已提交异步发送，尚未确认统计完成");
+        return ResponseEntity.accepted().body(accepted);
     }
 
     /**
      * 查询章节相关信息
      */
     @GetMapping("queryBookIndexAbout")
-    public RestResult<Map<String, Object>> queryBookIndexAbout(Long bookId, Long lastBookIndexId) {
+    public RestResult<?> queryBookIndexAbout(Long bookId, Long lastBookIndexId) {
+        BookService.OwnedChapter owned = bookService.findOwnedChapter(bookId, lastBookIndexId).orElse(null);
+        if (owned == null) {
+            return RestResult.fail(io.github.xxyopen.model.resp.SysResultCode.PARAM_ERROR);
+        }
+        BookIndex bookIndex = owned.bookIndex();
+        BookContentService contents = bookContentServiceMap.get(bookIndex.getStorageType());
+        if (contents == null) {
+            return RestResult.fail(io.github.xxyopen.model.resp.SysResultCode.PARAM_ERROR);
+        }
+        BookContent content = contents.queryBookContent(owned);
+        if (content == null || content.getContent() == null) {
+            return RestResult.fail(io.github.xxyopen.model.resp.SysResultCode.PARAM_ERROR);
+        }
         Map<String, Object> data = new HashMap<>(2);
         data.put("bookIndexCount", bookService.queryIndexCount(bookId));
-        BookIndex bookIndex = bookService.queryBookIndex(lastBookIndexId);
-        String lastBookContent = bookContentServiceMap.get(bookIndex.getStorageType())
-            .queryBookContent(bookId, lastBookIndexId).getContent();
+        String lastBookContent = content.getContent();
         if (lastBookContent.length() > 42) {
             lastBookContent = lastBookContent.substring(0, 42);
         }
@@ -178,28 +207,86 @@ public class BookController extends BaseController {
         return RestResult.ok();
     }
 
+    @PostMapping("editComment")
+    public RestResult<?> editComment(@RequestParam Long id,@RequestParam Long version,@RequestParam String content,HttpServletRequest request) {
+        UserDetails user=getUserDetails(request);
+        if(user==null) return RestResult.fail(ResponseStatus.NO_LOGIN);
+        bookService.editComment(user.getId(),id,version,content);return RestResult.ok();
+    }
+
+    @PostMapping("editReply")
+    public RestResult<?> editReply(@RequestParam Long id,@RequestParam Long version,@RequestParam String content,HttpServletRequest request) {
+        UserDetails user=getUserDetails(request);
+        if(user==null) return RestResult.fail(ResponseStatus.NO_LOGIN);
+        bookService.editReply(user.getId(),id,version,content);return RestResult.ok();
+    }
+
+    @PostMapping("setCommentLike")
+    public ResponseEntity<RestResult<?>> setCommentLike(@RequestParam Long commentId,@RequestParam String active,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.setCommentReaction(commentId,user.getId(),true,reactionActive(active))));
+    }
+    @PostMapping("setCommentUnLike")
+    public ResponseEntity<RestResult<?>> setCommentUnLike(@RequestParam Long commentId,@RequestParam String active,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.setCommentReaction(commentId,user.getId(),false,reactionActive(active))));
+    }
+    @PostMapping("setReplyLike")
+    public ResponseEntity<RestResult<?>> setReplyLike(@RequestParam Long replyId,@RequestParam String active,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.setReplyReaction(replyId,user.getId(),true,reactionActive(active))));
+    }
+    @PostMapping("setReplyUnLike")
+    public ResponseEntity<RestResult<?>> setReplyUnLike(@RequestParam Long replyId,@RequestParam String active,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.setReplyReaction(replyId,user.getId(),false,reactionActive(active))));
+    }
+    @GetMapping("commentReaction")
+    public ResponseEntity<RestResult<?>> commentReaction(@RequestParam Long commentId,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.getCommentReaction(commentId,user.getId())));
+    }
+    @GetMapping("replyReaction")
+    public ResponseEntity<RestResult<?>> replyReaction(@RequestParam Long replyId,HttpServletRequest request) {
+        var user=getUserDetails(request);if(user==null)return reactionResponse(RestResult.fail(ResponseStatus.NO_LOGIN));
+        return reactionResponse(RestResult.ok(likeService.getReplyReaction(replyId,user.getId())));
+    }
+    private static boolean reactionActive(String active) {
+        if(!"true".equals(active) && !"false".equals(active)) throw new io.github.xxyopen.web.exception.BusinessException(io.github.xxyopen.model.resp.SysResultCode.PARAM_ERROR);
+        return "true".equals(active);
+    }
+    private static ResponseEntity<RestResult<?>> reactionResponse(RestResult<?> body) {
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(body);
+    }
+    private static ResponseEntity<RestResult<?>> deprecatedReaction(RestResult<?> body,String successor) {
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).header("Deprecation","@1792368000")
+            .header("Link","</book/"+successor+">; rel=\"successor-version\"").body(body);
+    }
+
     /**
      * 评价点赞/取消点赞
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     @PostMapping("toggleCommentLike")
-    public RestResult<?> toggleCommentLike(Long commentId, HttpServletRequest request) {
+    public ResponseEntity<RestResult<?>> toggleCommentLike(Long commentId, HttpServletRequest request) {
         UserDetails userDetails = getUserDetails(request);
         if (userDetails == null) {
-            return RestResult.fail(ResponseStatus.NO_LOGIN);
+            return deprecatedReaction(RestResult.fail(ResponseStatus.NO_LOGIN),"setCommentLike");
         }
-        return RestResult.ok(likeService.toggleCommentLike(commentId, userDetails.getId()));
+        return deprecatedReaction(RestResult.ok(likeService.toggleCommentLike(commentId, userDetails.getId())),"setCommentLike");
     }
 
     /**
      * 评价点踩/取消点踩
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     @PostMapping("toggleCommentUnLike")
-    public RestResult<?> toggleCommentUnLike(Long commentId, HttpServletRequest request) {
+    public ResponseEntity<RestResult<?>> toggleCommentUnLike(Long commentId, HttpServletRequest request) {
         UserDetails userDetails = getUserDetails(request);
         if (userDetails == null) {
-            return RestResult.fail(ResponseStatus.NO_LOGIN);
+            return deprecatedReaction(RestResult.fail(ResponseStatus.NO_LOGIN),"setCommentUnLike");
         }
-        return RestResult.ok(likeService.toggleCommentUnLike(commentId, userDetails.getId()));
+        return deprecatedReaction(RestResult.ok(likeService.toggleCommentUnLike(commentId, userDetails.getId())),"setCommentUnLike");
     }
 
     /**
@@ -219,25 +306,27 @@ public class BookController extends BaseController {
     /**
      * 回复点赞/取消点赞
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     @PostMapping("toggleReplyLike")
-    public RestResult<?> toggleReplyLike(Long replyId, HttpServletRequest request) {
+    public ResponseEntity<RestResult<?>> toggleReplyLike(Long replyId, HttpServletRequest request) {
         UserDetails userDetails = getUserDetails(request);
         if (userDetails == null) {
-            return RestResult.fail(ResponseStatus.NO_LOGIN);
+            return deprecatedReaction(RestResult.fail(ResponseStatus.NO_LOGIN),"setReplyLike");
         }
-        return RestResult.ok(likeService.toggleReplyLike(replyId, userDetails.getId()));
+        return deprecatedReaction(RestResult.ok(likeService.toggleReplyLike(replyId, userDetails.getId())),"setReplyLike");
     }
 
     /**
      * 回复点赞/取消点赞
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     @PostMapping("toggleReplyUnLike")
-    public RestResult<?> toggleReplyUnLike(Long replyId, HttpServletRequest request) {
+    public ResponseEntity<RestResult<?>> toggleReplyUnLike(Long replyId, HttpServletRequest request) {
         UserDetails userDetails = getUserDetails(request);
         if (userDetails == null) {
-            return RestResult.fail(ResponseStatus.NO_LOGIN);
+            return deprecatedReaction(RestResult.fail(ResponseStatus.NO_LOGIN),"setReplyUnLike");
         }
-        return RestResult.ok(likeService.toggleReplyUnLike(replyId, userDetails.getId()));
+        return deprecatedReaction(RestResult.ok(likeService.toggleReplyUnLike(replyId, userDetails.getId())),"setReplyUnLike");
     }
 
     /**

@@ -15,9 +15,14 @@
     <description>小说精品屋 前台</description>
 
     <dependencies>
+        <dependency><groupId>com.java2nb</groupId><artifactId>novel-interaction</artifactId><version>5.3.3</version></dependency>
         <dependency>
             <groupId>com.java2nb</groupId>
             <artifactId>novel-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.java2nb</groupId>
+            <artifactId>novel-cache-contract</artifactId>
         </dependency>
 
         <dependency>

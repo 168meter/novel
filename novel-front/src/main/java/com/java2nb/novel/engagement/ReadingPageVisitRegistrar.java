@@ -16,10 +16,13 @@ public class ReadingPageVisitRegistrar {
 
     private static final String PAGE_KEY_PREFIX = "reading:page:";
     private static final DefaultRedisScript<Long> PAGE_REGISTRATION_SCRIPT = new DefaultRedisScript<>("""
+        local redisTime = redis.call('TIME')
+        local now = tonumber(redisTime[1]) * 1000 + math.floor(tonumber(redisTime[2]) / 1000)
         redis.call('HSET', KEYS[1],
           'sessionHash', ARGV[1],
           'bookId', ARGV[2],
           'chapterId', ARGV[3],
+          'createdAtMillis', now,
           'lastSequence', '0')
         redis.call('EXPIRE', KEYS[1], tonumber(ARGV[4]))
         return 1

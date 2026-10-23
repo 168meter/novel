@@ -23,6 +23,7 @@ public class ReadingEngagementService {
     private final Clock clock;
     private final EnumMap<ReadingHeartbeatOutcome, Counter> outcomeCounters;
     private final Counter creditedSecondsCounter;
+    private final Counter acceptedSecondsCounter;
 
     public ReadingEngagementService(
         ReadingIdentityHasher identityHasher,
@@ -38,7 +39,12 @@ public class ReadingEngagementService {
         this.properties = properties;
         this.clock = clock;
         this.outcomeCounters = registerOutcomeCounters(meterRegistry);
-        this.creditedSecondsCounter = meterRegistry.counter(CREDITED_SECONDS_METRIC);
+        this.creditedSecondsCounter = Counter.builder(CREDITED_SECONDS_METRIC)
+            .description("Compatibility metric: seconds accepted by the Redis gate, before Kafka persistence")
+            .register(meterRegistry);
+        this.acceptedSecondsCounter = Counter.builder("novel.reading.heartbeat.accepted.seconds")
+            .description("Reading seconds accepted by the Redis heartbeat gate")
+            .register(meterRegistry);
     }
 
     public ReadingHeartbeatOutcome handle(
@@ -61,12 +67,12 @@ public class ReadingEngagementService {
             request.sequence(),
             sessionHash,
             ipHmac,
-            statDate,
-            now.toEpochMilli());
+            statDate);
 
         ReadingHeartbeatOutcome outcome = recordOutcome(heartbeatGate.evaluate(command));
         if (outcome == ReadingHeartbeatOutcome.ACCEPTED) {
             creditedSecondsCounter.increment(properties.creditedSeconds());
+            acceptedSecondsCounter.increment(properties.creditedSeconds());
             publisher.publish(
                 request.bookId(),
                 request.chapterId(),

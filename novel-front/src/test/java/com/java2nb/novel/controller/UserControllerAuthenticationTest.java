@@ -199,11 +199,11 @@ class UserControllerAuthenticationTest {
         String oldForm = mvc.perform(post("/user/register")
                 .param("username", "13800138000").param("password", "password123")
                 .param("velCode", "1234"))
-            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
         String shortPassword = mvc.perform(post("/user/register")
                 .param("email", "reader@example.com").param("code", "123456")
                 .param("password", "1234567").param("confirmPassword", "1234567"))
-            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
         assertThat(oldForm).doesNotContain("token");
         assertThat(shortPassword).doesNotContain("token");
         verify(auth, never()).register(any(RegisterRequest.class));

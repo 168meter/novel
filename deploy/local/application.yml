@@ -1,0 +1,43 @@
+# Used only by deploy/scripts/start-local-front.ps1.
+spring:
+  datasource:
+    url: jdbc:shardingsphere:absolutepath:${NOVEL_LOCAL_SHARDING_FILE}?placeholder-type=environment
+  data:
+    redis:
+      host: 127.0.0.1
+      port: ${REDIS_HOST_PORT:6380}
+      password: ${REDIS_PASSWORD}
+  kafka:
+    bootstrap-servers: 127.0.0.1:${KAFKA_HOST_PORT:9092}
+  mail:
+    host: 127.0.0.1
+    port: ${MAILPIT_SMTP_HOST_PORT:1025}
+    username: acceptance@novel.local
+    password: ''
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.ssl.enable: false
+  # Preserve the existing offline local profile; external AI is opt-in.
+  ai:
+    model:
+      chat: ${NOVEL_AI_MODEL_CHAT:none}
+      image: ${NOVEL_AI_MODEL_IMAGE:none}
+      audio:
+        speech: ${NOVEL_AI_MODEL_AUDIO_SPEECH:none}
+        transcription: ${NOVEL_AI_MODEL_AUDIO_TRANSCRIPTION:none}
+      embedding: ${NOVEL_AI_MODEL_EMBEDDING:none}
+      moderation: ${NOVEL_AI_MODEL_MODERATION:none}
+pic:
+  save:
+    type: 1
+    storage: local
+    path: ${NOVEL_LOCAL_RUNTIME_DIR}/pictures/
+content:
+  save:
+    storage: db
+    path: ${NOVEL_LOCAL_RUNTIME_DIR}/books/
+http:
+  proxy:
+    enabled: false
+    username: ''
+    password: ''

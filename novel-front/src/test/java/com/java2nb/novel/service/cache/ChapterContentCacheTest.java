@@ -19,14 +19,17 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -60,6 +63,8 @@ class ChapterContentCacheTest {
         meterRegistry = new SimpleMeterRegistry();
         cache = new ChapterContentCache(redisTemplate, objectMapper, 1800, 300, 60, 10, 10, 50,
             sleeper, jitterSource, meterRegistry);
+        lenient().when(redisTemplate.execute(eq(ChapterContentCache.FILL_IF_OWNER_SCRIPT),
+            eq(List.of(CONTENT_KEY,LOCK_KEY)),anyString(),anyString(),anyString())).thenReturn(1L);
     }
 
     @AfterEach
@@ -179,7 +184,7 @@ class ChapterContentCacheTest {
     void redisWriteOomRecordsWriteError() {
         arrangeCacheMissWithLockWinner(content("database"));
         doThrow(new RuntimeException("OOM command not allowed when used memory > 'maxmemory'"))
-            .when(valueOperations).set(eq(CONTENT_KEY), anyString(), eq(1807L), eq(TimeUnit.SECONDS));
+            .when(redisTemplate).execute(eq(ChapterContentCache.FILL_IF_OWNER_SCRIPT),eq(List.of(CONTENT_KEY,LOCK_KEY)),anyString(),anyString(),eq("1807"));
 
         cache.getOrLoad(BOOK_ID, CHAPTER_ID, loader);
 
@@ -233,7 +238,7 @@ class ChapterContentCacheTest {
 
         assertThat(result).isSameAs(loaded);
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-        verify(valueOperations).set(eq(CONTENT_KEY), json.capture(), eq(1807L), eq(TimeUnit.SECONDS));
+        verify(redisTemplate).execute(eq(ChapterContentCache.FILL_IF_OWNER_SCRIPT),eq(List.of(CONTENT_KEY,LOCK_KEY)),anyString(),json.capture(),eq("1807"));
         assertThat(objectMapper.readValue(json.getValue(), BookContent.class).getContent()).isEqualTo("database");
         verify(loader).get();
     }
@@ -246,7 +251,7 @@ class ChapterContentCacheTest {
 
         assertThat(cache.getOrLoad(BOOK_ID, CHAPTER_ID, loader)).isNull();
 
-        verify(valueOperations).set(CONTENT_KEY, "__NULL__", 60L, TimeUnit.SECONDS);
+        verify(redisTemplate).execute(eq(ChapterContentCache.FILL_IF_OWNER_SCRIPT),eq(List.of(CONTENT_KEY,LOCK_KEY)),anyString(),eq("__NULL__"),eq("60"));
         verify(loader).get();
     }
 
@@ -320,7 +325,7 @@ class ChapterContentCacheTest {
         when(valueOperations.setIfAbsent(eq(LOCK_KEY), anyString(), eq(10L), eq(TimeUnit.SECONDS))).thenReturn(true);
         when(loader.get()).thenReturn(loaded);
         doThrow(new RuntimeException("OOM command not allowed when used memory > 'maxmemory'"))
-            .when(valueOperations).set(eq(CONTENT_KEY), anyString(), eq(1807L), eq(TimeUnit.SECONDS));
+            .when(redisTemplate).execute(eq(ChapterContentCache.FILL_IF_OWNER_SCRIPT),eq(List.of(CONTENT_KEY,LOCK_KEY)),anyString(),anyString(),eq("1807"));
 
         BookContent result = cache.getOrLoad(BOOK_ID, CHAPTER_ID, loader);
 
@@ -329,11 +334,24 @@ class ChapterContentCacheTest {
     }
 
     @Test
-    void evictDeletesOnlyRequestedChapterKey() {
+    void evictDeletesRequestedContentAndRevokesItsLoader() {
         cache.evict(BOOK_ID, CHAPTER_ID);
 
-        verify(redisTemplate).delete(CONTENT_KEY);
-        verify(redisTemplate, never()).delete(LOCK_KEY);
+        verify(redisTemplate).delete(Set.of(CONTENT_KEY,LOCK_KEY));
+        verify(redisTemplate, never()).delete(Set.of(LOCK_KEY));
+        assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
+            "source", "front", "result", "success").count()).isEqualTo(1);
+    }
+
+    @Test
+    void evictionFailureIsMeasuredAndDoesNotEscape() {
+        doThrow(new RedisConnectionFailureException("offline"))
+            .when(redisTemplate).delete(Set.of(CONTENT_KEY,LOCK_KEY));
+
+        assertThatCode(() -> cache.evict(BOOK_ID, CHAPTER_ID)).doesNotThrowAnyException();
+
+        assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
+            "source", "front", "result", "failed").count()).isEqualTo(1);
     }
 
     @Test
@@ -342,11 +360,11 @@ class ChapterContentCacheTest {
 
         cache.evictAfterCommit(BOOK_ID, CHAPTER_ID);
 
-        verify(redisTemplate, never()).delete(anyString());
+        verify(redisTemplate, never()).delete(anyCollection());
         List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
         assertThat(synchronizations).hasSize(1);
         synchronizations.getFirst().afterCommit();
-        verify(redisTemplate).delete(CONTENT_KEY);
+        verify(redisTemplate).delete(Set.of(CONTENT_KEY,LOCK_KEY));
     }
 
     @Test
@@ -357,7 +375,7 @@ class ChapterContentCacheTest {
 
         TransactionSynchronization synchronization = TransactionSynchronizationManager.getSynchronizations().getFirst();
         synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
-        verify(redisTemplate, never()).delete(anyString());
+        verify(redisTemplate, never()).delete(anyCollection());
     }
 
     private BookContent content(String value) {

@@ -1,0 +1,10 @@
+FROM eclipse-temurin:21.0.8_9-jre-alpine
+RUN apk add --no-cache gettext wget && addgroup -S -g 10001 novel && adduser -S -D -H -u 10001 -G novel novel
+WORKDIR /app
+COPY novel-front/target/novel-front-5.3.3.jar /app/novel-front.jar
+COPY templates /app/templates
+COPY deploy/novel-front/entrypoint.sh /app/entrypoint.sh
+COPY deploy/shardingsphere/shardingsphere-jdbc.yml.template /app/config/shardingsphere-jdbc.yml.template
+RUN sed -i 's/\r$//' /app/entrypoint.sh && mkdir -p /app/logs /app/runtime && chown -R 10001:10001 /app && chmod 0555 /app/entrypoint.sh
+USER 10001:10001
+ENTRYPOINT ["/app/entrypoint.sh"]

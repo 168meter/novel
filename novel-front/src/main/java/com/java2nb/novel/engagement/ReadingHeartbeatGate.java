@@ -20,27 +20,38 @@ public class ReadingHeartbeatGate {
         local lastSequence = tonumber(redis.call('HGET', KEYS[1], 'lastSequence') or '0')
         if sequence <= lastSequence then return 2 end
 
-        local now = tonumber(ARGV[5])
-        local windowStart = tonumber(ARGV[6])
-        redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', windowStart)
-        if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[7]) then return 4 end
-        redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', windowStart)
-        if redis.call('ZCARD', KEYS[3]) >= tonumber(ARGV[8]) then return 5 end
+        local redisTime = redis.call('TIME')
+        local now = tonumber(redisTime[1]) * 1000 + math.floor(tonumber(redisTime[2]) / 1000)
+        local intervalMillis = tonumber(ARGV[5])
+        local createdAtMillis = tonumber(redis.call('HGET', KEYS[1], 'createdAtMillis'))
+        if createdAtMillis == nil then return 3 end
+        if now - createdAtMillis < intervalMillis then return 7 end
+        local lastCreditedAtMillis = tonumber(redis.call('GET', KEYS[2]))
+        if lastCreditedAtMillis ~= nil and now - lastCreditedAtMillis < intervalMillis then return 7 end
 
-        local credited = tonumber(redis.call('GET', KEYS[4]) or '0')
+        local windowStart = now - tonumber(ARGV[6])
+        redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', windowStart)
+        if redis.call('ZCARD', KEYS[3]) >= tonumber(ARGV[7]) then return 4 end
+        redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', windowStart)
+        if redis.call('ZCARD', KEYS[4]) >= tonumber(ARGV[8]) then return 5 end
+
+        local credited = tonumber(redis.call('GET', KEYS[5]) or '0')
         local creditSeconds = tonumber(ARGV[10])
         if credited + creditSeconds > tonumber(ARGV[9]) then return 6 end
 
         redis.call('HSET', KEYS[1], 'lastSequence', sequence)
-        redis.call('ZADD', KEYS[2], now, ARGV[13])
-        redis.call('EXPIRE', KEYS[2], tonumber(ARGV[11]))
-        redis.call('ZADD', KEYS[3], now, ARGV[13])
+        redis.call('SET', KEYS[2], now, 'EX', tonumber(ARGV[13]))
+        redis.call('ZADD', KEYS[3], now, ARGV[14])
         redis.call('EXPIRE', KEYS[3], tonumber(ARGV[11]))
-        redis.call('SET', KEYS[4], credited + creditSeconds, 'EX', tonumber(ARGV[12]))
+        redis.call('ZADD', KEYS[4], now, ARGV[14])
+        redis.call('EXPIRE', KEYS[4], tonumber(ARGV[11]))
+        redis.call('SET', KEYS[5], credited + creditSeconds, 'EX', tonumber(ARGV[12]))
+        redis.call('EXPIRE', KEYS[1], tonumber(ARGV[13]))
         return 1
         """, Long.class);
 
     private static final String PAGE_KEY_PREFIX = "reading:page:";
+    private static final String SESSION_TIME_KEY_PREFIX = "reading:time:session:";
     private static final String SESSION_RATE_KEY_PREFIX = "reading:rate:session:";
     private static final String IP_RATE_KEY_PREFIX = "reading:rate:ip:";
     private static final String CREDIT_KEY_PREFIX = "reading:credit:";
@@ -67,6 +78,7 @@ public class ReadingHeartbeatGate {
     private ReadingHeartbeatOutcome execute(ReadingHeartbeatCommand command) {
         List<String> keys = List.of(
             PAGE_KEY_PREFIX + "{" + command.pageVisitId() + "}",
+            SESSION_TIME_KEY_PREFIX + command.sessionHash(),
             SESSION_RATE_KEY_PREFIX + command.sessionHash(),
             IP_RATE_KEY_PREFIX + command.ipHmac(),
             CREDIT_KEY_PREFIX + command.statDate() + ":" + command.sessionHash() + ":" + command.bookId() + ":"
@@ -76,14 +88,15 @@ public class ReadingHeartbeatGate {
             String.valueOf(command.bookId()),
             String.valueOf(command.chapterId()),
             String.valueOf(command.sequence()),
-            String.valueOf(command.nowEpochMillis()),
-            String.valueOf(command.nowEpochMillis() - properties.rateWindow().toMillis()),
+            String.valueOf(properties.creditedSeconds() * 1_000L),
+            String.valueOf(properties.rateWindow().toMillis()),
             String.valueOf(properties.sessionLimit()),
             String.valueOf(properties.ipLimit()),
             String.valueOf(properties.dailyCapSeconds()),
             String.valueOf(properties.creditedSeconds()),
             String.valueOf(properties.rateKeyTtl().toSeconds()),
             String.valueOf(properties.creditKeyTtl().toSeconds()),
+            String.valueOf(properties.pageTtl().toSeconds()),
             command.pageVisitId() + ":" + command.sequence());
         return map(result);
     }
@@ -109,6 +122,9 @@ public class ReadingHeartbeatGate {
         }
         if (result == 6L) {
             return ReadingHeartbeatOutcome.DAILY_CAP_REACHED;
+        }
+        if (result == 7L) {
+            return ReadingHeartbeatOutcome.TOO_EARLY;
         }
         return ReadingHeartbeatOutcome.REDIS_ERROR;
     }

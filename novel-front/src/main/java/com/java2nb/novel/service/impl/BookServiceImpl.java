@@ -41,6 +41,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
+import io.github.xxyopen.model.resp.SysResultCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -86,6 +88,8 @@ public class BookServiceImpl implements BookService {
     private final FrontBookCommentMapper bookCommentMapper;
 
     private final FrontBookCommentReplyMapper bookCommentReplyMapper;
+
+    private final com.java2nb.novel.comment.CommentModerationService moderation;
 
     private final BookAuthorMapper bookAuthorMapper;
 
@@ -223,12 +227,18 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public Book queryBookDetail(Long bookId) {
+        return findBook(bookId).orElseThrow(() -> new NoSuchElementException("Book not found"));
+    }
+
+    @Override
+    public Optional<Book> findBook(Long bookId) {
         SelectStatementProvider selectStatement = select(book.allColumns())
             .from(book)
             .where(id, isEqualTo(bookId))
+            .limit(1)
             .build()
             .render(RenderingStrategies.MYBATIS3);
-        return bookMapper.selectMany(selectStatement).get(0);
+        return bookMapper.selectMany(selectStatement).stream().findFirst();
     }
 
     @Override
@@ -264,6 +274,17 @@ public class BookServiceImpl implements BookService {
             .build()
             .render(RenderingStrategies.MYBATIS3);
         return bookIndexMapper.selectMany(selectStatement).get(0);
+    }
+
+    @Override
+    public Optional<BookIndex> findBookIndex(Long bookId, Long bookIndexId) {
+        SelectStatementProvider statement = select(bookIndex.allColumns())
+            .from(bookIndex)
+            .where(BookIndexDynamicSqlSupport.id, isEqualTo(bookIndexId))
+            .and(BookIndexDynamicSqlSupport.bookId, isEqualTo(bookId))
+            .limit(1)
+            .build().render(RenderingStrategies.MYBATIS3);
+        return bookIndexMapper.selectMany(statement).stream().findFirst();
     }
 
     @Override
@@ -398,26 +419,23 @@ public class BookServiceImpl implements BookService {
         return pageBean;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor=Exception.class)
     @Override
     public void addBookComment(Long userId, BookComment comment) {
-        //判断该用户是否已评论过该书籍
-        SelectStatementProvider selectStatement = select(count(BookCommentDynamicSqlSupport.id))
-            .from(bookComment)
-            .where(BookCommentDynamicSqlSupport.createUserId, isEqualTo(userId))
-            .and(BookCommentDynamicSqlSupport.bookId, isEqualTo(comment.getBookId()))
-            .build()
-            .render(RenderingStrategies.MYBATIS3);
-        if (bookCommentMapper.count(selectStatement) > 0) {
-            throw new BusinessException(ResponseStatus.HAS_COMMENTS);
-        }
-        //增加评论
-        comment.setCreateUserId(userId);
-        comment.setCreateTime(new Date());
-        bookCommentMapper.insertSelective(comment);
-        //增加书籍评论数
-        bookMapper.addCommentCount(comment.getBookId());
+        if(comment==null) throw new BusinessException(SysResultCode.PARAM_ERROR);
+        moderate(() -> moderation.createComment(userId,comment.getBookId(),comment.getCommentContent(),comment.getLocation()));
+    }
 
+    @Override
+    public void editComment(Long userId,Long id,Long version,String content) {
+        if(userId==null || userId<=0) throw new BusinessException(ResponseStatus.NO_LOGIN);
+        moderate(() -> moderation.editComment(id,userId,version,content));
+    }
+
+    @Override
+    public void editReply(Long userId,Long id,Long version,String content) {
+        if(userId==null || userId<=0) throw new BusinessException(ResponseStatus.NO_LOGIN);
+        moderate(() -> moderation.editReply(id,userId,version,content));
     }
 
     @Override
@@ -638,6 +656,7 @@ public class BookServiceImpl implements BookService {
         bookContent.setIndexId(lastIndexId);
         bookContent.setContent(content);
         bookContentMapper.insertSelective(bookContent);
+        chapterContentCache.evictAfterCommit(bookId, lastIndexId);
 
 
     }
@@ -899,15 +918,11 @@ public class BookServiceImpl implements BookService {
         return cacheService.get(CacheKey.AI_GEN_PIC + bookId);
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor=Exception.class)
     @Override
-    public void addBookCommentReply(Long userId, BookCommentReply commentReply) {
-        //增加回复
-        commentReply.setCreateUserId(userId);
-        commentReply.setCreateTime(new Date());
-        bookCommentReplyMapper.insertSelective(commentReply);
-        //增加评论回复数
-        bookCommentMapper.addReplyCount(commentReply.getCommentId());
+    public void addBookCommentReply(Long userId, BookCommentReply reply) {
+        if(reply==null) throw new BusinessException(SysResultCode.PARAM_ERROR);
+        moderate(() -> moderation.createReply(userId,reply.getCommentId(),reply.getReplyContent(),reply.getLocation()));
     }
 
     @Override
@@ -924,8 +939,20 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public BookComment getBookComment(Long commentId) {
-        return bookCommentMapper.selectByPrimaryKey(commentId).orElse(null);
+        var row=moderation.publicComment(commentId);
+        if(row==null) return null;
+        var result=new BookComment();result.setId(row.getId());result.setCommentContent(row.getCommentContent());
+        result.setBookId(row.getBookId());result.setAuditStatus(row.getAuditStatus());result.setModerationVersion(row.getModerationVersion());return result;
     }
 
+
+    private static <T> T moderate(java.util.function.Supplier<T> action) {
+        try{return action.get();}catch(com.java2nb.novel.comment.ModerationException e){
+            throw new BusinessException(new io.github.xxyopen.model.resp.IResultCode(){
+                public int getCode(){return e.getCode();}
+                public String getMsg(){return e.getMessage();}
+            });
+        }
+    }
 
 }

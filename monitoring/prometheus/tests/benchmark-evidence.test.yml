@@ -1,0 +1,279 @@
+{
+  "rule_files": [
+    "../rules/novel-plus-alerts.yml"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "idle windows do not invent ratios or latency",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0x6"
+        },
+        {
+          "series": "novel_chapter_cache_lookup_total{job=\"novel-front\",instance=\"a\",result=\"hit\"}",
+          "values": "0x6"
+        },
+        {
+          "series": "novel_chapter_cache_lookup_total{job=\"novel-front\",instance=\"a\",result=\"miss\"}",
+          "values": "0x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum by (instance, status) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m])) / on (instance) group_left sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": []
+        },
+        {
+          "expr": "(sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\", result=\"hit\"}[5m])) / sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\"}[5m]))) and on (instance) (sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": []
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[5m]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": []
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "ChapterHttp5xxHigh",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "6m",
+          "alertname": "ChapterHttp503Observed",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "status denominator remains per instance and excludes unrelated URIs",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0+90x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"500\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"b\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0+100x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/\",method=\"GET\",status=\"200\"}",
+          "values": "0+10000x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum by (instance, status) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m])) / on (instance) group_left sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": [
+            {
+              "labels": "{instance=\"a\",status=\"200\"}",
+              "value": 0.9
+            },
+            {
+              "labels": "{instance=\"a\",status=\"500\"}",
+              "value": 0.1
+            },
+            {
+              "labels": "{instance=\"b\",status=\"200\"}",
+              "value": 1
+            }
+          ]
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "ChapterHttp5xxHigh",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "novel-front",
+                "instance": "a",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Chapter HTTP server error rate is high",
+                "description": "Chapter GET 5xx ratio exceeded 5 percent with at least 20 requests in five minutes for one minute."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "503 is observable independently of ordinary 404",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0+99x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"503\"}",
+          "values": "0+1x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"b\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"404\"}",
+          "values": "0+100x6"
+        }
+      ],
+      "promql_expr_test": [],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "ChapterHttp503Observed",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "novel-front",
+                "instance": "a",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Chapter HTTP 503 responses observed",
+                "description": "A chapter GET returned 503 during an active five-minute request window; inspect shared executor rejection and capacity."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reading metric gap remains visible for one healthy target",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"novel-front\",instance=\"a\"}",
+          "values": "1x6"
+        },
+        {
+          "series": "up{job=\"novel-front\",instance=\"b\"}",
+          "values": "1x6"
+        },
+        {
+          "series": "kafka_consumer_connection_count{job=\"novel-front\",instance=\"a\",spring_id=\"readingEngagementConsumerFactory.test\"}",
+          "values": "2x6"
+        },
+        {
+          "series": "kafka_consumer_connection_count{job=\"novel-front\",instance=\"b\",spring_id=\"readingEngagementConsumerFactory.test\"}",
+          "values": "2x6"
+        },
+        {
+          "series": "kafka_consumer_fetch_manager_records_lag{job=\"novel-front\",instance=\"a\",topic=\"novel-reading-engagement-v1\",partition=\"0\"}",
+          "values": "0x6"
+        }
+      ],
+      "promql_expr_test": [],
+      "alert_rule_test": [
+        {
+          "eval_time": "6m",
+          "alertname": "ReadingConsumerMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "job": "novel-front",
+                "instance": "b",
+                "severity": "warning"
+              },
+              "exp_annotations": {
+                "summary": "Reading consumer metric input is missing",
+                "description": "A reachable application lacks reading consumer connection or topic fetch-lag series for five minutes. Check binding, assignment and whether the topic has received records; missing is not zero lag."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "histogram estimate retains instances",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\",le=\"0.1\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"novel-front\",instance=\"a\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\",le=\"+Inf\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_count{job=\"novel-front\",instance=\"b\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"novel-front\",instance=\"b\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\",le=\"1\"}",
+          "values": "0+10x6"
+        },
+        {
+          "series": "http_server_requests_seconds_bucket{job=\"novel-front\",instance=\"b\",uri=\"/book/{bookId}/{bookIndexId}.html\",method=\"GET\",status=\"200\",le=\"+Inf\"}",
+          "values": "0+10x6"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[5m]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"novel-front\", instance=~\"a|b\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": [
+            {
+              "labels": "{instance=\"a\"}",
+              "value": 0.095
+            },
+            {
+              "labels": "{instance=\"b\"}",
+              "value": 0.95
+            }
+          ]
+        }
+      ],
+      "alert_rule_test": []
+    },
+    {
+      "name": "cache ratio tolerates reset and includes lookup errors",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "novel_chapter_cache_lookup_total{job=\"novel-front\",instance=\"a\",result=\"hit\"}",
+          "values": "0 2 4 0 2 4 6"
+        },
+        {
+          "series": "novel_chapter_cache_lookup_total{job=\"novel-front\",instance=\"a\",result=\"miss\"}",
+          "values": "0 1 2 0 1 2 3"
+        },
+        {
+          "series": "novel_chapter_cache_lookup_total{job=\"novel-front\",instance=\"a\",result=\"error\"}",
+          "values": "0 1 2 0 1 2 3"
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "(sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\", result=\"hit\"}[5m])) / sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\"}[5m]))) and on (instance) (sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"novel-front\", instance=~\"a|b\"}[5m])) > 0)",
+          "eval_time": "6m",
+          "exp_samples": [
+            {
+              "labels": "{instance=\"a\"}",
+              "value": 0.5
+            }
+          ]
+        }
+      ],
+      "alert_rule_test": []
+    }
+  ],
+  "fuzzy_compare": true
+}

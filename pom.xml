@@ -7,6 +7,8 @@
     <artifactId>novel</artifactId>
     <version>5.3.3</version>
     <modules>
+        <module>novel-cache-contract</module>
+        <module>novel-interaction</module>
         <module>novel-common</module>
         <module>novel-front</module>
         <module>novel-crawl</module>
@@ -49,6 +51,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.java2nb</groupId>
+                <artifactId>novel-cache-contract</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.java2nb</groupId>
                 <artifactId>novel-common</artifactId>

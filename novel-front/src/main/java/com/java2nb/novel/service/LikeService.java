@@ -5,6 +5,13 @@ package com.java2nb.novel.service;
  * @author 11797
  */
 public interface LikeService {
+    /** Counts/membership at the Lua execution point; concurrent later writes may change them. */
+    record ReactionState(long likesCount,long unLikesCount,boolean liked,boolean disliked) {}
+    ReactionState setCommentReaction(Long commentId,Long userId,boolean like,boolean active);
+    ReactionState setReplyReaction(Long replyId,Long userId,boolean like,boolean active);
+    ReactionState getCommentReaction(Long commentId,Long userId);
+    ReactionState getReplyReaction(Long replyId,Long userId);
+
 
     /**
      * 评论点赞或取消点赞
@@ -12,6 +19,7 @@ public interface LikeService {
      * @param userId 用户ID
      * @return 返回点赞数量
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     public Long toggleCommentLike(Long commentId, Long userId);
 
     /**
@@ -20,6 +28,7 @@ public interface LikeService {
      * @param userId 用户ID
      * @return 返回点踩数量
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     public Long toggleCommentUnLike(Long commentId, Long userId);
 
     /**
@@ -42,6 +51,7 @@ public interface LikeService {
      * @param userId 用户ID
      * @return 返回点赞数量
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     public Long toggleReplyLike(Long replyId, Long userId);
 
     /**
@@ -50,6 +60,7 @@ public interface LikeService {
      * @param userId 用户ID
      * @return 返回点踩数量
      */
+    @Deprecated(since="2026-10-19",forRemoval=false)
     public Long toggleReplyUnLike(Long replyId, Long userId);
 
     /**

@@ -23,6 +23,7 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.MicrometerConsumerListener;
 import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -55,7 +56,7 @@ public class ReadingEngagementKafkaConfig {
 
     @Bean(defaultCandidate = false)
     DefaultKafkaConsumerFactory<Long, ReadingEngagementEvent> readingEngagementConsumerFactory(
-        KafkaProperties kafkaProperties
+        KafkaProperties kafkaProperties, MeterRegistry meterRegistry
     ) {
         Map<String, Object> consumerProperties = new HashMap<>(
             kafkaProperties.buildConsumerProperties(null));
@@ -74,7 +75,11 @@ public class ReadingEngagementKafkaConfig {
         consumerProperties.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         consumerProperties.put(JsonDeserializer.TRUSTED_PACKAGES,
             "com.java2nb.novel.event");
-        return new DefaultKafkaConsumerFactory<>(consumerProperties);
+        DefaultKafkaConsumerFactory<Long, ReadingEngagementEvent> factory =
+            new DefaultKafkaConsumerFactory<>(consumerProperties);
+        // This dedicated factory is not built by Boot's default factory customizers.
+        factory.addListener(new MicrometerConsumerListener<>(meterRegistry));
+        return factory;
     }
 
     @Bean(defaultCandidate = false, destroyMethod = "destroy")

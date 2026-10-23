@@ -61,5 +61,10 @@
         where id = #{userId}
     </update>
 
+    <update id="deductUserBalance">
+        UPDATE `user` SET account_balance = account_balance - #{amount}
+        WHERE id = #{userId} AND account_balance >= #{amount}
+    </update>
+
 
 </mapper>

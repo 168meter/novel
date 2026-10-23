@@ -12,5 +12,5 @@ public interface FrontBookCommentMapper extends BookCommentMapper {
 
     List<BookCommentVO> listCommentByPage(@Param("userId") Long userId, @Param("bookId") Long bookId);
 
-    void addReplyCount(@Param("commentId") Long commentId);
+    int addReplyCount(@Param("commentId") Long commentId);
 }

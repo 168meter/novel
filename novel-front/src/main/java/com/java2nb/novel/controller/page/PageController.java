@@ -10,20 +10,28 @@ import com.java2nb.novel.vo.BookCommentVO;
 import com.java2nb.novel.vo.BookIndexNavigationVO;
 import com.java2nb.novel.vo.BookSettingVO;
 import io.github.xxyopen.model.page.PageBean;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Controller;
+import org.springframework.http.HttpStatus;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.ModelAndView;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 
 /**
  * @author 11797
@@ -46,6 +54,8 @@ public class PageController extends BaseController {
     private final Map<String, BookContentService> bookContentServiceMap;
 
     private final ReadingPageVisitRegistrar readingPageVisitRegistrar;
+
+    private final MeterRegistry meterRegistry;
 
     @RequestMapping("{url}.html")
     public String module(@PathVariable("url") String url) {
@@ -86,13 +96,13 @@ public class PageController extends BaseController {
     @RequestMapping(path = {"/", "/index", "/index.html"})
     public String index(Model model) {
         //加载小说首页小说基本信息线程
-        CompletableFuture<Map<String, List<BookSettingVO>>> bookCompletableFuture = CompletableFuture.supplyAsync(
-            bookService::listBookSettingVO, threadPoolExecutor);
+        CompletableFuture<Map<String, List<BookSettingVO>>> bookCompletableFuture = submitPageTask(
+            bookService::listBookSettingVO, "novel.home.request.rejected");
         //加载首页新闻线程
-        CompletableFuture<List<News>> newsCompletableFuture = CompletableFuture.supplyAsync(newsService::listIndexNews,
-            threadPoolExecutor);
-        model.addAttribute("bookMap", bookCompletableFuture.get());
-        model.addAttribute("newsList", newsCompletableFuture.get());
+        CompletableFuture<List<News>> newsCompletableFuture = submitPageTask(
+            newsService::listIndexNews, "novel.home.request.rejected");
+        model.addAttribute("bookMap", awaitPageTask(bookCompletableFuture, "novel.home.request.rejected"));
+        model.addAttribute("newsList", awaitPageTask(newsCompletableFuture, "novel.home.request.rejected"));
         return ThreadLocalUtil.getTemplateDir() + "index";
     }
 
@@ -178,21 +188,24 @@ public class PageController extends BaseController {
     @RequestMapping("/book/{bookId}.html")
     public String bookDetail(@PathVariable("bookId") Long bookId, Model model) {
         //加载小说基本信息线程
-        CompletableFuture<Book> bookCompletableFuture = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<Book> bookCompletableFuture = submitReadingPageTask(() -> {
             //查询书籍
-            Book book = bookService.queryBookDetail(bookId);
+            Book book = bookService.findBook(bookId).orElse(null);
             log.debug("加载小说基本信息线程结束");
             return book;
-        }, threadPoolExecutor);
+        });
         //加载小说评论列表线程
-        CompletableFuture<PageBean<BookCommentVO>> bookCommentPageBeanCompletableFuture = CompletableFuture.supplyAsync(
+        CompletableFuture<PageBean<BookCommentVO>> bookCommentPageBeanCompletableFuture = submitReadingPageTask(
             () -> {
                 PageBean<BookCommentVO> bookCommentVOPageBean = bookService.listCommentByPage(null, bookId, 1, 5);
                 log.debug("加载小说评论列表线程结束");
                 return bookCommentVOPageBean;
-            }, threadPoolExecutor);
+            });
         //加载小说首章信息线程，该线程在加载小说基本信息线程执行完毕后才执行
         CompletableFuture<Long> firstBookIndexIdCompletableFuture = bookCompletableFuture.thenApplyAsync((book) -> {
+            if (book == null) {
+                return null;
+            }
             if (book.getLastIndexId() != null) {
                 //查询首章目录ID
                 Long firstBookIndexId = bookService.queryFirstBookIndexId(bookId);
@@ -203,15 +216,22 @@ public class PageController extends BaseController {
         }, threadPoolExecutor);
         //加载随机推荐小说线程，该线程在加载小说基本信息线程执行完毕后才执行
         CompletableFuture<List<Book>> recBookCompletableFuture = bookCompletableFuture.thenApplyAsync((book) -> {
+            if (book == null) {
+                return List.of();
+            }
             List<Book> books = bookService.listRecBookByCatId(book.getCatId());
             log.debug("加载随机推荐小说线程结束");
             return books;
         }, threadPoolExecutor);
 
-        model.addAttribute("book", bookCompletableFuture.get());
-        model.addAttribute("firstBookIndexId", firstBookIndexIdCompletableFuture.get());
-        model.addAttribute("recBooks", recBookCompletableFuture.get());
-        model.addAttribute("bookCommentPageBean", bookCommentPageBeanCompletableFuture.get());
+        Book book = awaitReadingPageTask(bookCompletableFuture);
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
+        model.addAttribute("book", book);
+        model.addAttribute("firstBookIndexId", awaitReadingPageTask(firstBookIndexIdCompletableFuture));
+        model.addAttribute("recBooks", awaitReadingPageTask(recBookCompletableFuture));
+        model.addAttribute("bookCommentPageBean", awaitReadingPageTask(bookCommentPageBeanCompletableFuture));
 
         return ThreadLocalUtil.getTemplateDir() + "book/book_detail";
     }
@@ -222,7 +242,10 @@ public class PageController extends BaseController {
     @SneakyThrows
     @RequestMapping("/book/indexList-{bookId}.html")
     public String indexList(@PathVariable("bookId") Long bookId, Model model) {
-        Book book = bookService.queryBookDetail(bookId);
+        Book book = bookService.findBook(bookId).orElse(null);
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
         model.addAttribute("book", book);
         List<BookIndex> bookIndexList = bookService.queryIndexList(bookId, null, 1, null);
         model.addAttribute("bookIndexList", bookIndexList);
@@ -238,14 +261,32 @@ public class PageController extends BaseController {
     public String bookContent(@PathVariable("bookId") Long bookId, @PathVariable("bookIndexId") Long bookIndexId,
         HttpServletRequest request, Model model) {
         // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
-        CompletableFuture<ChapterPageData> chapterPageDataCompletableFuture = CompletableFuture.supplyAsync(() -> {
-            Book book = bookService.queryBookDetail(bookId);
-            BookIndex bookIndex = bookService.queryBookIndex(bookIndexId);
+        CompletableFuture<ChapterPageResult> chapterPageDataCompletableFuture = submitReadingPageTask(() -> {
+            BookService.OwnedChapter owned = bookService.findOwnedChapter(bookId, bookIndexId).orElse(null);
+            if (owned == null) {
+                return ChapterPageResult.failure(ChapterPageFailure.CHAPTER_NOT_FOUND);
+            }
+            BookIndex bookIndex = owned.bookIndex();
+            Book book = bookService.findBook(bookId).orElse(null);
+            if (book == null) {
+                return ChapterPageResult.failure(ChapterPageFailure.BOOK_NOT_FOUND);
+            }
+
+            String storageType = bookIndex.getStorageType();
+            if (!("db".equals(storageType) || "txt".equals(storageType))) {
+                return ChapterPageResult.failure(ChapterPageFailure.INVALID_STORAGE_TYPE);
+            }
+            BookContentService bookContentService = bookContentServiceMap.get(storageType);
+            if (bookContentService == null) {
+                return ChapterPageResult.failure(ChapterPageFailure.INVALID_STORAGE_TYPE);
+            }
+            BookContent bookContent = bookContentService.queryBookContent(owned);
+            if (bookContent == null || StringUtils.isBlank(bookContent.getContent())) {
+                return ChapterPageResult.failure(ChapterPageFailure.CONTENT_NOT_FOUND);
+            }
 
             BookIndexNavigationVO navigation =
                 bookService.queryBookIndexNavigation(bookId, bookIndex.getIndexNum());
-            BookContent bookContent = bookContentServiceMap.get(bookIndex.getStorageType())
-                .queryBookContent(bookId, bookIndexId);
 
             boolean needBuy = false;
             if (bookIndex.getIsVip() != null && bookIndex.getIsVip() == 1) {
@@ -258,11 +299,15 @@ public class PageController extends BaseController {
             }
 
             log.debug("加载章节页面数据线程结束");
-            return new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
-                navigation.getNextBookIndexId(), bookContent, needBuy);
-        }, threadPoolExecutor);
+            return ChapterPageResult.success(new ChapterPageData(book, bookIndex, navigation.getPreBookIndexId(),
+                navigation.getNextBookIndexId(), bookContent, needBuy));
+        });
 
-        ChapterPageData chapterPageData = chapterPageDataCompletableFuture.get();
+        ChapterPageResult chapterPageResult = awaitReadingPageTask(chapterPageDataCompletableFuture);
+        if (chapterPageResult.failure() != null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, chapterPageResult.failure().message());
+        }
+        ChapterPageData chapterPageData = chapterPageResult.data();
         model.addAttribute("book", chapterPageData.book());
         model.addAttribute("bookIndex", chapterPageData.bookIndex());
         model.addAttribute("preBookIndexId", chapterPageData.preBookIndexId());
@@ -270,7 +315,7 @@ public class PageController extends BaseController {
         model.addAttribute("bookContent", chapterPageData.bookContent());
         model.addAttribute("needBuy", chapterPageData.needBuy());
 
-        if (!chapterPageData.needBuy() && chapterPageData.bookContent() != null) {
+        if (!chapterPageData.needBuy()) {
             readingPageVisitRegistrar.register(ThreadLocalUtil.getClientId(), bookId, bookIndexId)
                 .ifPresent(pageVisitId -> model.addAttribute("readingPageVisitId", pageVisitId));
         }
@@ -278,8 +323,89 @@ public class PageController extends BaseController {
         return ThreadLocalUtil.getTemplateDir() + "book/book_content";
     }
 
+    private <T> CompletableFuture<T> submitReadingPageTask(Supplier<T> task) {
+        return submitPageTask(task, "novel.chapter.request.rejected");
+    }
+
+    private <T> CompletableFuture<T> submitPageTask(Supplier<T> task, String rejectionMetric) {
+        try {
+            return CompletableFuture.supplyAsync(task, threadPoolExecutor);
+        } catch (RejectedExecutionException exception) {
+            throw pageOverloaded(exception, rejectionMetric);
+        }
+    }
+
+    private <T> T awaitReadingPageTask(CompletableFuture<T> task)
+        throws ExecutionException, InterruptedException {
+        return awaitPageTask(task, "novel.chapter.request.rejected");
+    }
+
+    private <T> T awaitPageTask(CompletableFuture<T> task, String rejectionMetric)
+        throws ExecutionException, InterruptedException {
+        try {
+            return task.get();
+        } catch (ExecutionException exception) {
+            RejectedExecutionException rejection = findExecutorRejection(exception);
+            if (rejection != null) {
+                throw pageOverloaded(rejection, rejectionMetric);
+            }
+            throw exception;
+        }
+    }
+
+    private RejectedExecutionException findExecutorRejection(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof RejectedExecutionException rejection) {
+                return rejection;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private ResponseStatusException pageOverloaded(RejectedExecutionException exception, String rejectionMetric) {
+        meterRegistry.counter(rejectionMetric).increment();
+        log.warn("Page task rejected by executor; counter={}", rejectionMetric);
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+            "Page temporarily unavailable", exception);
+    }
+
     private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
                                    BookContent bookContent, boolean needBuy) {
+    }
+
+    private record ChapterPageResult(ChapterPageData data, ChapterPageFailure failure) {
+        private static ChapterPageResult success(ChapterPageData data) {
+            return new ChapterPageResult(data, null);
+        }
+
+        private static ChapterPageResult failure(ChapterPageFailure failure) {
+            return new ChapterPageResult(null, failure);
+        }
+    }
+
+    private enum ChapterPageFailure {
+        BOOK_NOT_FOUND("Book not found"),
+        CHAPTER_NOT_FOUND("Chapter not found in requested book"),
+        INVALID_STORAGE_TYPE("Chapter storage type is unsupported"),
+        CONTENT_NOT_FOUND("Chapter content is unavailable");
+
+        private final String message;
+
+        ChapterPageFailure(String message) {
+            this.message = message;
+        }
+
+        private String message() {
+            return message;
+        }
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ModelAndView pageStatus(ResponseStatusException exception) {
+        return new ModelAndView("404", exception.getStatusCode())
+            .addObject("errorStatus", exception.getStatusCode().value());
     }
 
     /**
@@ -288,7 +414,10 @@ public class PageController extends BaseController {
     @RequestMapping("/book/comment-{bookId}.html")
     public String commentList(@PathVariable("bookId") Long bookId, Model model) {
         //查询书籍
-        Book book = bookService.queryBookDetail(bookId);
+        Book book = bookService.findBook(bookId).orElse(null);
+        if (book == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found");
+        }
         model.addAttribute("book", book);
         return "book/book_comment";
     }
@@ -299,7 +428,9 @@ public class PageController extends BaseController {
     @RequestMapping("/book/reply-{commentId}.html")
     public String commentReplyList(@PathVariable("commentId") Long commentId, Model model) {
         model.addAttribute("commentId", commentId);
-        model.addAttribute("commentContent", bookService.getBookComment(commentId).getCommentContent());
+        BookComment comment=bookService.getBookComment(commentId);
+        if(comment==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Comment not found");
+        model.addAttribute("commentContent", comment.getCommentContent());
         return "book/book_comment_reply";
     }
 

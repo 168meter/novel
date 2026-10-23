@@ -1,6 +1,12 @@
 *
 !.dockerignore
 !pom.xml
+!novel-cache-contract/pom.xml
+!novel-cache-contract/src/**
+!novel-interaction/
+!novel-interaction/pom.xml
+!novel-interaction/src/
+!novel-interaction/src/**
 !novel-common/
 !novel-common/pom.xml
 !novel-common/src/
@@ -23,3 +29,9 @@
 !deploy/shardingsphere/shardingsphere-jdbc.yml.template
 **/src/main/resources/application*-dev.yml
 **/src/main/build/config/shardingsphere-jdbc.yml
+!deploy/correctness/
+!deploy/correctness/**
+!novel-front/target/
+!novel-front/target/novel-front-5.3.3.jar
+!novel-admin/target/
+!novel-admin/target/novel-admin-5.3.3.jar

@@ -1,6 +1,8 @@
 package com.java2nb.novel.service.impl;
 
 import com.java2nb.novel.entity.Book;
+import com.java2nb.novel.cache.ChapterCacheIdentity;
+import com.java2nb.novel.cache.CrawlChapterCacheInvalidator;
 import com.java2nb.novel.entity.BookContent;
 import com.java2nb.novel.entity.BookIndex;
 import com.java2nb.novel.mapper.*;
@@ -14,9 +16,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -40,6 +44,8 @@ public class BookServiceImpl implements BookService {
     private final CrawlBookIndexMapper bookIndexMapper;
 
     private final Map<String, BookContentService> bookContentServiceMap;
+
+    private final CrawlChapterCacheInvalidator chapterCacheInvalidator;
 
     @Value("${content.save.storage}")
     private String storageType;
@@ -94,6 +100,13 @@ public class BookServiceImpl implements BookService {
                 });
                 bookIndexMapper.insertMultiple(bookIndexList);
                 bookContentServiceMap.get(storageType).saveBookContent(bookContentList, book.getId());
+                if ("db".equals(storageType)) {
+                    LinkedHashSet<ChapterCacheIdentity> identities = new LinkedHashSet<>();
+                    for (BookIndex bookIndex : bookIndexList) {
+                        identities.add(new ChapterCacheIdentity(book.getId(), bookIndex.getId()));
+                    }
+                    chapterCacheInvalidator.evictAfterCommit(List.copyOf(identities));
+                }
 
             }
         }
@@ -127,6 +140,7 @@ public class BookServiceImpl implements BookService {
     @Transactional(rollbackFor = Exception.class)
     @Override
     public void updateBookAndIndexAndContent(Book book, List<BookIndex> bookIndexList, List<BookContent> bookContentList, Map<Integer, BookIndex> existBookIndexMap) {
+        LinkedHashSet<ChapterCacheIdentity> identities = new LinkedHashSet<>();
         for (int i = 0; i < bookIndexList.size(); i++) {
             BookIndex bookIndex = bookIndexList.get(i);
             BookContent bookContent = bookContentList.get(i);
@@ -137,10 +151,35 @@ public class BookServiceImpl implements BookService {
                 bookIndex.setStorageType(storageType);
                 bookIndexMapper.insertSelective(bookIndex);
                 bookContentServiceMap.get(storageType).saveBookContent(bookContent, book.getId());
+                if ("db".equals(storageType)) {
+                    identities.add(new ChapterCacheIdentity(book.getId(), bookIndex.getId()));
+                }
             } else {
                 //更新
-                bookIndexMapper.updateByPrimaryKeySelective(bookIndex);
-                bookContentServiceMap.get(existBookIndexMap.get(bookIndex.getIndexNum()).getStorageType()).updateBookContent(bookContent, book.getId());
+                BookIndex existing = existBookIndexMap.get(bookIndex.getIndexNum());
+                if (!Objects.equals(existing.getId(), bookIndex.getId())
+                    || !Objects.equals(existing.getId(), bookContent.getIndexId())
+                    || (bookIndex.getBookId() != null && !Objects.equals(book.getId(), bookIndex.getBookId()))
+                    || (bookIndex.getStorageType() != null && !Objects.equals(existing.getStorageType(), bookIndex.getStorageType()))) {
+                    throw new IllegalArgumentException("Existing chapter identity is immutable");
+                }
+                // Explicit editable columns: do not let a generic update rewrite book_id/storage_type.
+                int affected = bookIndexMapper.update(update(BookIndexDynamicSqlSupport.bookIndex)
+                    .set(BookIndexDynamicSqlSupport.indexNum).equalToWhenPresent(bookIndex.getIndexNum())
+                    .set(BookIndexDynamicSqlSupport.indexName).equalToWhenPresent(bookIndex.getIndexName())
+                    .set(BookIndexDynamicSqlSupport.wordCount).equalToWhenPresent(bookIndex.getWordCount())
+                    .set(BookIndexDynamicSqlSupport.isVip).equalToWhenPresent(bookIndex.getIsVip())
+                    .set(BookIndexDynamicSqlSupport.bookPrice).equalToWhenPresent(bookIndex.getBookPrice())
+                    .set(BookIndexDynamicSqlSupport.createTime).equalToWhenPresent(bookIndex.getCreateTime())
+                    .set(BookIndexDynamicSqlSupport.updateTime).equalToWhenPresent(bookIndex.getUpdateTime())
+                    .where(BookIndexDynamicSqlSupport.id, isEqualTo(existing.getId()))
+                    .and(BookIndexDynamicSqlSupport.bookId, isEqualTo(book.getId()))
+                    .build().render(RenderingStrategies.MYBATIS3));
+                if (affected != 1) throw new IllegalStateException("Chapter no longer exists in the expected book");
+                bookContentServiceMap.get(existing.getStorageType()).updateBookContent(bookContent, book.getId());
+                if ("db".equals(existing.getStorageType())) {
+                    identities.add(new ChapterCacheIdentity(book.getId(), existing.getId()));
+                }
             }
 
 
@@ -153,6 +192,7 @@ public class BookServiceImpl implements BookService {
             book.setVisitCount(null);
         }
         bookMapper.updateByPrimaryKeySelective(book);
+        chapterCacheInvalidator.evictAfterCommit(List.copyOf(identities));
 
     }
 

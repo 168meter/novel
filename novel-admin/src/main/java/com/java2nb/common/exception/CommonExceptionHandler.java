@@ -37,6 +37,11 @@ public class CommonExceptionHandler {
         return R.error(e.getCode(),e.getMessage());
     }
 
+    @ExceptionHandler(com.java2nb.novel.comment.ModerationException.class)
+    public R handleModerationBusinessException(com.java2nb.novel.comment.ModerationException e) {
+        return R.error(e.getCode(),e.getMessage());
+    }
+
     @ExceptionHandler(DuplicateKeyException.class)
     public R handleDuplicateKeyException(DuplicateKeyException e) {
         logger.error(e.getMessage(), e);

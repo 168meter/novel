@@ -15,14 +15,23 @@ public class BookVisitBatchAggregator {
     public Map<Long, Long> aggregate(List<BookVisitEvent> events) {
         Map<Long, Long> totals = new LinkedHashMap<>();
         for (BookVisitEvent event : events) {
-            if (event == null || event.bookId() == null || event.bookId() <= 0) {
-                throw new IllegalArgumentException("bookId must be positive");
-            }
-            if (event.delta() == null || event.delta() <= 0) {
-                throw new IllegalArgumentException("delta must be positive");
-            }
+            validate(event);
             totals.merge(event.bookId(), event.delta(), Math::addExact);
         }
         return Map.copyOf(totals);
+    }
+
+    public void validate(BookVisitEvent event) {
+        if (event == null || event.bookId() == null || event.bookId() <= 0) {
+            throw new InvalidVisitEventException("bookId must be positive");
+        }
+        if (event.delta() == null || event.delta() <= 0) {
+            throw new InvalidVisitEventException("delta must be positive");
+        }
+    }
+
+    /** Only explicit event validation failures may be skipped into the visit DLT. */
+    public static class InvalidVisitEventException extends IllegalArgumentException {
+        public InvalidVisitEventException(String message) { super(message); }
     }
 }

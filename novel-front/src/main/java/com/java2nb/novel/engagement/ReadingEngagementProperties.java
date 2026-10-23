@@ -2,6 +2,8 @@ package com.java2nb.novel.engagement;
 
 import com.java2nb.novel.event.ReadingEngagementEvent;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.util.Set;
@@ -19,6 +21,8 @@ public class ReadingEngagementProperties {
     private int sessionLimit = 8;
     private int ipLimit = 120;
     private int dailyCapSeconds = 1800;
+    @Min(ReadingEngagementEvent.CREDITED_SECONDS)
+    @Max(ReadingEngagementEvent.CREDITED_SECONDS)
     private int creditedSeconds = ReadingEngagementEvent.CREDITED_SECONDS;
     private ZoneId zoneId = ZoneId.of("Asia/Shanghai");
     @NotBlank

@@ -7,5 +7,6 @@ public enum ReadingHeartbeatOutcome {
     SESSION_RATE_LIMITED,
     IP_RATE_LIMITED,
     DAILY_CAP_REACHED,
+    TOO_EARLY,
     REDIS_ERROR
 }

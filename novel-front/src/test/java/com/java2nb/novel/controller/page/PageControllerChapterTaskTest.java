@@ -13,6 +13,7 @@ import com.java2nb.novel.service.BookService;
 import com.java2nb.novel.service.NewsService;
 import com.java2nb.novel.service.UserService;
 import com.java2nb.novel.vo.BookIndexNavigationVO;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -24,6 +25,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ExtendedModelMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -33,9 +35,68 @@ import static org.mockito.Mockito.when;
 
 class PageControllerChapterTaskTest {
 
+    private static BookService booksWithOwnershipLookup() {
+        BookService books = mock(BookService.class);
+        org.mockito.Mockito.doCallRealMethod().when(books).findOwnedChapter(any(), any());
+        return books;
+    }
+
+
+    @Test
+    void mismatchedChapterIsRejectedBeforeNavigationContentPurchaseOrRegistration() {
+        BookService books = booksWithOwnershipLookup();
+        UserService users = mock(UserService.class);
+        BookContentService contents = mock(BookContentService.class);
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        when(books.findBookIndex(1L, 100L)).thenReturn(Optional.empty());
+        PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
+            users, new CountingDirectExecutor(), Map.of("db", contents), registrar, new SimpleMeterRegistry());
+        ExtendedModelMap model = new ExtendedModelMap();
+        assertThatThrownBy(() -> controller.bookContent(1L, 100L, new MockHttpServletRequest(), model))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .satisfies(error -> assertThat(((org.springframework.web.server.ResponseStatusException) error)
+                .getStatusCode().value()).isEqualTo(404));
+        verify(books, never()).queryBookIndexNavigation(any(), any());
+        verify(contents, never()).queryBookContent(any(), any());
+        verify(users, never()).queryIsBuyBookIndex(any(), any());
+        verify(registrar, never()).register(any(), any(), any());
+        assertThat(model).doesNotContainKey("readingPageVisitId");
+    }
+
+    @Test
+    void absentOrForeignChapterReturnsHttp404EvenWithGlobalExceptionAdvice() throws Exception {
+        BookService books = booksWithOwnershipLookup();
+        when(books.findBookIndex(1L, 100L)).thenReturn(Optional.empty());
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
+            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar, new SimpleMeterRegistry());
+        org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new com.java2nb.novel.core.advice.CommonExceptionHandler())
+            .build().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/book/1/100.html"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.view().name("404"));
+        verify(registrar, never()).register(any(), any(), any());
+    }
+
+    @Test
+    void nonexistentRequestedBookAlsoReturns404BeforeBookDetailLookup() throws Exception {
+        BookService books = booksWithOwnershipLookup();
+        when(books.findBookIndex(999L, 100L)).thenReturn(Optional.empty());
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        PageController controller = new PageController(books, mock(NewsService.class), mock(AuthorService.class),
+            mock(UserService.class), new CountingDirectExecutor(), Map.of(), registrar, new SimpleMeterRegistry());
+        org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+            .setControllerAdvice(new com.java2nb.novel.core.advice.CommonExceptionHandler())
+            .build().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/book/999/100.html"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        verify(books, never()).findBook(any());
+        verify(books, never()).queryBookIndexNavigation(any(), any());
+        verify(registrar, never()).register(any(), any(), any());
+    }
+
     @Test
     void chapterPageUsesOneExecutorTaskWithoutChangingPageData() {
-        BookService bookService = mock(BookService.class);
+        BookService bookService = booksWithOwnershipLookup();
         UserService userService = mock(UserService.class);
         BookContentService contentService = mock(BookContentService.class);
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
@@ -48,16 +109,16 @@ class PageControllerChapterTaskTest {
         content.setIndexId(100L);
         content.setContent("chapter text");
 
-        when(bookService.queryBookDetail(1L)).thenReturn(book);
-        when(bookService.queryBookIndex(100L)).thenReturn(index);
+        when(bookService.findBook(1L)).thenReturn(Optional.of(book));
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.queryBookIndexNavigation(1L, 10))
             .thenReturn(new BookIndexNavigationVO(99L, 101L));
-        when(contentService.queryBookContent(1L, 100L)).thenReturn(content);
+        when(contentService.queryBookContent(any(BookService.OwnedChapter.class))).thenReturn(content);
         when(registrar.register("reader-mark", 1L, 100L)).thenReturn(Optional.of("page-token"));
 
         PageController controller = new PageController(
             bookService, mock(NewsService.class), mock(AuthorService.class), userService, executor,
-            Map.of("db", contentService), registrar);
+            Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
@@ -71,7 +132,7 @@ class PageControllerChapterTaskTest {
 
         assertThat(executor.submittedTaskCount()).isEqualTo(1);
         assertThat(model.get("book")).isSameAs(book);
-        assertThat(model.get("bookIndex")).isSameAs(index);
+        assertThat(model.get("bookIndex")).usingRecursiveComparison().isEqualTo(index);
         assertThat(model.get("preBookIndexId")).isEqualTo(99L);
         assertThat(model.get("nextBookIndexId")).isEqualTo(101L);
         assertThat(model.get("bookContent")).isSameAs(content);
@@ -82,7 +143,7 @@ class PageControllerChapterTaskTest {
 
     @Test
     void consolidatedTaskPreservesVipAccessDecisions() {
-        BookService bookService = mock(BookService.class);
+        BookService bookService = booksWithOwnershipLookup();
         UserService userService = mock(UserService.class);
         BookContentService contentService = mock(BookContentService.class);
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
@@ -93,21 +154,22 @@ class PageControllerChapterTaskTest {
         book.setId(1L);
         BookIndex index = bookIndex((byte) 1);
         BookContent content = new BookContent();
+        content.setContent("paid chapter text");
         UserDetails user = new UserDetails();
         user.setId(7L);
 
-        when(bookService.queryBookDetail(1L)).thenReturn(book);
-        when(bookService.queryBookIndex(100L)).thenReturn(index);
+        when(bookService.findBook(1L)).thenReturn(Optional.of(book));
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.queryBookIndexNavigation(1L, 10))
             .thenReturn(new BookIndexNavigationVO(99L, 101L));
-        when(contentService.queryBookContent(1L, 100L)).thenReturn(content);
+        when(contentService.queryBookContent(any(BookService.OwnedChapter.class))).thenReturn(content);
         when(registrar.register("reader-mark", 1L, 100L)).thenReturn(Optional.empty());
         when(jwtTokenUtil.getAuthenticatedUserDetails("token")).thenReturn(user);
         when(userService.queryIsBuyBookIndex(7L, 100L)).thenReturn(true);
 
         PageController controller = new PageController(
             bookService, mock(NewsService.class), mock(AuthorService.class), userService, executor,
-            Map.of("db", contentService), registrar);
+            Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         controller.setJwtTokenUtil(jwtTokenUtil);
 
         ExtendedModelMap anonymousModel = new ExtendedModelMap();
@@ -131,18 +193,20 @@ class PageControllerChapterTaskTest {
 
     @Test
     void lockedVipChapterDoesNotRegisterAPageVisit() {
-        BookService bookService = mock(BookService.class);
+        BookService bookService = booksWithOwnershipLookup();
         BookContentService contentService = mock(BookContentService.class);
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
         CountingDirectExecutor executor = new CountingDirectExecutor();
         BookIndex index = bookIndex((byte) 1);
 
-        when(bookService.queryBookDetail(1L)).thenReturn(new Book());
-        when(bookService.queryBookIndex(100L)).thenReturn(index);
+        when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.queryBookIndexNavigation(1L, 10)).thenReturn(new BookIndexNavigationVO(99L, 101L));
-        when(contentService.queryBookContent(1L, 100L)).thenReturn(new BookContent());
+        BookContent content = new BookContent();
+        content.setContent("locked chapter text");
+        when(contentService.queryBookContent(any(BookService.OwnedChapter.class))).thenReturn(content);
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), executor, Map.of("db", contentService), registrar);
+            mock(UserService.class), executor, Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
@@ -156,34 +220,100 @@ class PageControllerChapterTaskTest {
     }
 
     @Test
-    void missingChapterContentDoesNotRegisterAPageVisit() {
-        BookService bookService = mock(BookService.class);
+    void missingChapterContentReturns404AndDoesNotRegisterAPageVisit() {
+        BookService bookService = booksWithOwnershipLookup();
         BookContentService contentService = mock(BookContentService.class);
         ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
         CountingDirectExecutor executor = new CountingDirectExecutor();
         BookIndex index = bookIndex((byte) 0);
 
-        when(bookService.queryBookDetail(1L)).thenReturn(new Book());
-        when(bookService.queryBookIndex(100L)).thenReturn(index);
+        when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
         when(bookService.queryBookIndexNavigation(1L, 10)).thenReturn(new BookIndexNavigationVO(99L, 101L));
-        when(contentService.queryBookContent(1L, 100L)).thenReturn(null);
+        when(contentService.queryBookContent(any(BookService.OwnedChapter.class))).thenReturn(null);
         PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
-            mock(UserService.class), executor, Map.of("db", contentService), registrar);
+            mock(UserService.class), executor, Map.of("db", contentService), registrar, new SimpleMeterRegistry());
         ExtendedModelMap model = new ExtendedModelMap();
 
         try (MockedStatic<ThreadLocalUtil> threadLocal = mockStatic(ThreadLocalUtil.class)) {
             threadLocal.when(ThreadLocalUtil::getTemplateDir).thenReturn("");
-            controller.bookContent(1L, 100L, new MockHttpServletRequest(), model);
+            assertThatThrownBy(() -> controller.bookContent(
+                1L, 100L, new MockHttpServletRequest(), model))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         }
 
-        assertThat(model.get("bookContent")).isNull();
         assertThat(model).doesNotContainKey("readingPageVisitId");
+        verify(registrar, never()).register(any(), any(), any());
+    }
+
+    @Test
+    void missingBookReturns404BeforeNavigationContentOrRegistration() {
+        BookService bookService = booksWithOwnershipLookup();
+        BookContentService contentService = mock(BookContentService.class);
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        BookIndex index = bookIndex((byte) 0);
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
+        when(bookService.findBook(1L)).thenReturn(Optional.empty());
+        PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
+
+        assertThatThrownBy(() -> controller.bookContent(
+            1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        verify(bookService, never()).queryBookIndexNavigation(any(), any());
+        verify(contentService, never()).queryBookContent(any(), any());
+        verify(registrar, never()).register(any(), any(), any());
+    }
+
+    @Test
+    void unknownStorageTypeReturns404WithoutCallingContentOrRegisteringVisit() {
+        BookService bookService = booksWithOwnershipLookup();
+        BookContentService contentService = mock(BookContentService.class);
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        BookIndex index = bookIndex((byte) 0);
+        index.setStorageType("s3");
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(index));
+        when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
+        PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
+
+        assertThatThrownBy(() -> controller.bookContent(
+            1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        verify(bookService, never()).queryBookIndexNavigation(any(), any());
+        verify(contentService, never()).queryBookContent(any(), any());
+        verify(registrar, never()).register(any(), any(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", " ", "\t\r\n"})
+    void nullEmptyOrBlankTextReturns404WithoutRegisteringVisit(String chapterText) {
+        BookService bookService = booksWithOwnershipLookup();
+        BookContentService contentService = mock(BookContentService.class);
+        ReadingPageVisitRegistrar registrar = mock(ReadingPageVisitRegistrar.class);
+        BookContent content = new BookContent();
+        content.setContent(chapterText);
+        when(bookService.findBookIndex(1L, 100L)).thenReturn(Optional.of(bookIndex((byte) 0)));
+        when(bookService.findBook(1L)).thenReturn(Optional.of(new Book()));
+        when(contentService.queryBookContent(any(BookService.OwnedChapter.class))).thenReturn(content);
+        PageController controller = new PageController(bookService, mock(NewsService.class), mock(AuthorService.class),
+            mock(UserService.class), new CountingDirectExecutor(), Map.of("db", contentService), registrar,
+            new SimpleMeterRegistry());
+
+        assertThatThrownBy(() -> controller.bookContent(
+            1L, 100L, new MockHttpServletRequest(), new ExtendedModelMap()))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        verify(bookService, never()).queryBookIndexNavigation(any(), any());
         verify(registrar, never()).register(any(), any(), any());
     }
 
     private BookIndex bookIndex(byte vip) {
         BookIndex index = new BookIndex();
         index.setId(100L);
+        index.setBookId(1L);
         index.setIndexNum(10);
         index.setIsVip(vip);
         index.setStorageType("db");

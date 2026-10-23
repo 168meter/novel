@@ -3,6 +3,7 @@ package com.java2nb.novel.dao;
 import com.java2nb.common.annotation.SanitizeMap;
 
 import com.java2nb.novel.domain.BookContentDO;
+import com.java2nb.novel.domain.ChapterCacheIdentityDO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -36,4 +37,6 @@ public interface BookContentDao {
     int removeByIndexIds(Long[] indexIds);
 
     List<BookContentDO> listByIndexIds(@Param("indexIds") List<Long> indexIds);
+
+    List<ChapterCacheIdentityDO> listCacheIdentitiesByIds(@Param("ids") List<Long> ids);
 }

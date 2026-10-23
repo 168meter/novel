@@ -5,6 +5,10 @@ import javax.annotation.Generated;
 import java.util.Date;
 
 public class BookComment {
+    private Long moderationVersion;
+    public Long getModerationVersion() { return moderationVersion; }
+    public void setModerationVersion(Long version) { this.moderationVersion = version; }
+
     @Generated("org.mybatis.generator.api.MyBatisGenerator")
     private Long id;
 

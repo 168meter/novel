@@ -25,6 +25,16 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>com.java2nb</groupId><artifactId>novel-interaction</artifactId><version>5.3.3</version></dependency>
+        <dependency>
+            <groupId>com.java2nb</groupId>
+            <artifactId>novel-cache-contract</artifactId>
+            <version>5.3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

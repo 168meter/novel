@@ -1,447 +1,1198 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "editable": false,
   "graphTooltip": 1,
   "panels": [
     {
       "id": 1,
-      "title": "Application Target",
-      "type": "stat",
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "up{job=\"novel-front\"}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []},
-      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+      "title": "Application Target / Uptime",
+      "description": "Benchmark validity: up=1 means a successful scrape, not all dependencies healthy. Uptime reset marks application restart; N/A marks absent input. Select one instance for evidence screenshots.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} scrape up",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} uptime",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Uptime (s)"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 2,
-      "title": "HTTP Requests / s",
+      "title": "Chapter Throughput by Status",
+      "description": "Only GET chapter page requests; requests/s by status and instance. Successful throughput must be read alongside errors and the load-generator report.",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 10, "x": 4, "y": 0},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(http_server_requests_seconds_count[$__rate_interval]))", "legendFormat": "requests/s", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance, status) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} HTTP {{status}} req/s",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 3,
-      "title": "HTTP Average / P95 / P99",
+      "title": "Successful Chapter Latency — P50 / P95 / P99",
+      "description": "Server-side histogram estimates for HTTP 200 chapter GETs, computed per instance. No successful requests means N/A, not 0 ms. Client timeouts and connection failures require load-generator evidence.",
       "type": "timeseries",
-      "gridPos": {"h": 8, "w": 10, "x": 14, "y": 0},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        {"expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[$__rate_interval])))", "legendFormat": "P95", "refId": "A"},
-        {"expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket[$__rate_interval])))", "legendFormat": "P99", "refId": "B"},
-        {"expr": "sum(rate(http_server_requests_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(http_server_requests_seconds_count[$__rate_interval])), 1e-9)", "legendFormat": "Average", "refId": "C"}
+        {
+          "expr": "histogram_quantile(0.5, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} P50",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} P95",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\", status=\"200\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} P99",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
       ],
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 4,
-      "title": "HTTP 5xx Ratio",
-      "type": "stat",
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "(sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 1e-9)) or vector(0)", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.01}]}}, "overrides": []},
-      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
+      "title": "Chapter HTTP Status Share",
+      "description": "Share of chapter GET requests by HTTP status (including 200, 404, 503 and 500 when observed). Each instance uses its own positive request denominator. Absent status series are not fabricated as zero; 404 and 503 are distinct outcomes.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "(sum by (instance, status) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[$__rate_interval])) / on (instance) group_left sum by (instance) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(http_server_requests_seconds_count{job=~\"$job\", instance=~\"$instance\", uri=\"/book/{bookId}/{bookIndexId}.html\", method=\"GET\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} HTTP {{status}} share",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 5,
-      "title": "Chapter Cache Hit Ratio",
-      "type": "stat",
-      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_chapter_cache_lookup_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(novel_chapter_cache_lookup_total[5m])), 1e-9)", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "yellow", "value": 0.9}, {"color": "green", "value": 0.98}]}}, "overrides": []},
-      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}
+      "title": "Chapter Cache Lookup / Hit Ratio",
+      "description": "Initial cache lookup per getOrLoad: hit includes a null marker. Retries and later reads are not additional lookup outcomes. Ratio uses hit / all initial lookups including errors; without activity ratio is N/A. This is not the successful chapter response ratio.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance, result) (rate(novel_chapter_cache_lookup_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} {{result}} lookups/s",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "(sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"$job\", instance=~\"$instance\", result=\"hit\"}[$__rate_interval])) / sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(novel_chapter_cache_lookup_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} initial hit ratio",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Initial hit ratio"
+              },
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 6,
-      "title": "Cache Lookups / s",
+      "title": "Chapter Content Loader / Write / Front Eviction",
+      "description": "Content Loader counts actual loader executions, including failed executions; excludes book/index/navigation queries. Writes include content or null markers. Eviction counts delete operations, not keys removed or TTL expiry. Only front eviction is scraped.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 9, "x": 6, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_chapter_cache_lookup_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance) (rate(novel_chapter_cache_load_seconds_count{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} Content Loader executions/s",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, result) (rate(novel_chapter_cache_write_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} write {{result}}/s",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, result) (rate(novel_chapter_cache_eviction_total{job=~\"$job\", instance=~\"$instance\", source=\"front\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} front eviction {{result}}/s",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 7,
-      "title": "Cache Writes / s",
+      "title": "Shared Front Executor — Capacity / Rejections",
+      "description": "novel.front.executor is shared by front pages, not chapter-exclusive. Active/max and queued/(queued+remaining) are capacity fractions; rejection is tasks/s on a separate axis. Current executor execution/idle timers are not recorded and are intentionally excluded.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 9, "x": 15, "y": 8},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_chapter_cache_write_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "executor_active_threads{job=~\"$job\", instance=~\"$instance\", name=\"novel.front.executor\"} / executor_pool_max_threads{job=~\"$job\", instance=~\"$instance\", name=\"novel.front.executor\"}",
+          "legendFormat": "{{instance}} active / max",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "executor_queued_tasks{job=~\"$job\", instance=~\"$instance\", name=\"novel.front.executor\"} / (executor_queued_tasks{job=~\"$job\", instance=~\"$instance\", name=\"novel.front.executor\"} + executor_queue_remaining_tasks{job=~\"$job\", instance=~\"$instance\", name=\"novel.front.executor\"})",
+          "legendFormat": "{{instance}} queue occupancy",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_front_executor_rejections_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} rejected tasks/s",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Rejected tasks/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 8,
-      "title": "Cache Lock Outcomes / s",
+      "title": "Kafka Application Flow — Messages / Updates / Persisted Seconds",
+      "description": "Producer success means send acknowledgement; consumers increment after their transactional writer returns. Messages, distinct-book updates and persisted seconds are different units and are not 1:1. Reading received includes deduplicated events; persisted seconds excludes them. Retry semantics differ: book counts failed delivery callbacks; reading counts attempts after the initial delivery. Book DLT counter marks recovery callback completion, not a separately confirmed broker acknowledgement.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 15},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_chapter_cache_lock_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance, result) (rate(novel_book_visit_kafka_send_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} book producer {{result}} messages/s",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_book_visit_kafka_consumed_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} book committed messages/s",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, result) (rate(novel_reading_kafka_producer_send_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} reading producer {{result}} messages/s",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_consumed_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} reading committed received events/s",
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_book_visit_kafka_db_updates_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} aggregated book updates/s",
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_persisted_seconds_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} persisted reading seconds/s",
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_retry_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} reading retries/s",
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_dlt_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} reading DLT records/s",
+          "refId": "H",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_dlt_publish_failures_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} reading DLT failures/s",
+          "refId": "I",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_book_visit_kafka_retry_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} book failed deliveries/s",
+          "refId": "J",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_book_visit_kafka_dlt_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} book DLT recovery callbacks/s",
+          "refId": "K",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:books/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Aggregated book updates/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "F"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:reading s/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Persisted reading seconds/s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 9,
-      "title": "Chapter DB Loads / s",
+      "title": "Kafka Client Fetch Lag by Topic / Partition",
+      "description": "Kafka client fetch-position lag, not committed group lag, database lag or end-to-end latency. Reading consumer has the same Micrometer client binding as the default consumer. Missing series must be investigated, not converted to zero. Per-client series avoid mixing consumer groups.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 15},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_chapter_cache_load_seconds_count[$__rate_interval]))", "legendFormat": "loads/s", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "kafka_consumer_fetch_manager_records_lag{job=~\"$job\", instance=~\"$instance\", topic=~\"novel-book-visit-v1|novel-reading-engagement-v1\"}",
+          "legendFormat": "{{instance}} {{topic}} p{{partition}} {{client_id}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 10,
-      "title": "Chapter DB Load Average",
+      "title": "Hikari Connection Pressure",
+      "description": "Connections are not SQL throughput. Active/max is a pool capacity fraction; pending is waiting requests; timeout rate has its own unit/axis. Acquire average is supporting and N/A without acquisition events. Inspect the selected pool and instance.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 15},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_chapter_cache_load_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(novel_chapter_cache_load_seconds_count[$__rate_interval])), 1e-9)", "legendFormat": "average", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{job=~\"$job\", instance=~\"$instance\"} / hikaricp_connections_max{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} {{pool}} active / max",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "hikaricp_connections_pending{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} {{pool}} pending",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, pool) (rate(hikaricp_connections_timeout_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} {{pool}} timeouts/s",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "(sum by (instance) (rate(hikaricp_connections_acquire_seconds_sum{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])) / sum by (instance) (rate(hikaricp_connections_acquire_seconds_count{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))) and on (instance) (sum by (instance) (rate(hikaricp_connections_acquire_seconds_count{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{instance}} acquire average",
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Pending requests"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Connection timeouts/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Acquire duration (s)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 11,
-      "title": "Kafka Send / s",
+      "title": "JVM Resource — CPU / Heap / GC Pause",
+      "description": "Per-instance process CPU, used heap bytes, and cumulative GC pause seconds / elapsed seconds (not a single-GC percentile). Heap bytes have their own axis; per-pool maximum can be -1 and is not fabricated into a total heap limit. No separate Live Threads panel.",
       "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 22},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_book_visit_kafka_send_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{job=~\"$job\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}} process CPU",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (jvm_memory_used_bytes{job=~\"$job\", instance=~\"$instance\", area=\"heap\"})",
+          "legendFormat": "{{instance}} used heap bytes",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(jvm_gc_pause_seconds_sum{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} GC pause seconds / wall second",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Used heap bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "custom.axisSoftMax",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
     },
     {
       "id": 12,
-      "title": "Kafka Consume and DB Update / s",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 22},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"expr": "sum(rate(novel_book_visit_kafka_consumed_total[$__rate_interval]))", "legendFormat": "consumed", "refId": "A"},
-        {"expr": "sum(rate(novel_book_visit_kafka_db_updates_total[$__rate_interval]))", "legendFormat": "db updates", "refId": "B"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    },
-    {
-      "id": 13,
-      "title": "Kafka Consumer Lag",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 22},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(kafka_consumer_fetch_manager_records_lag{topic=\"novel-book-visit-v1\"})", "legendFormat": "total lag", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 14,
-      "title": "Kafka Batch Size",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 29},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_book_visit_kafka_batch_size_sum[$__rate_interval])) / clamp_min(sum(rate(novel_book_visit_kafka_batch_size_count[$__rate_interval])), 1e-9)", "legendFormat": "messages/batch", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 15,
-      "title": "Aggregated Books / Batch",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 29},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_book_visit_kafka_aggregated_books_sum[$__rate_interval])) / clamp_min(sum(rate(novel_book_visit_kafka_aggregated_books_count[$__rate_interval])), 1e-9)", "legendFormat": "books/batch", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 16,
-      "title": "JVM Heap Usage",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 29},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) / clamp_min(sum(jvm_memory_max_bytes{area=\"heap\"}), 1)", "legendFormat": "heap", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 17,
-      "title": "GC Pause / s",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 36},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(jvm_gc_pause_seconds_sum[$__rate_interval]))", "legendFormat": "pause seconds/s", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 18,
-      "title": "Live Threads",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 36},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(jvm_threads_live_threads)", "legendFormat": "threads", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 19,
-      "title": "Hikari Connections",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 36},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"expr": "sum(hikaricp_connections_active)", "legendFormat": "active", "refId": "A"},
-        {"expr": "sum(hikaricp_connections_idle)", "legendFormat": "idle", "refId": "B"},
-        {"expr": "sum(hikaricp_connections_pending)", "legendFormat": "pending", "refId": "C"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    },
-    {
-      "id": 20,
-      "title": "Hikari Acquire Average",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 43},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(hikaricp_connections_acquire_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(hikaricp_connections_acquire_seconds_count[$__rate_interval])), 1e-9)", "legendFormat": "average", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 21,
-      "title": "Front Executor Utilization",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 43},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"expr": "executor_active_threads{name=\"novel.front.executor\"}", "legendFormat": "active", "refId": "A"},
-        {"expr": "executor_pool_size_threads{name=\"novel.front.executor\"}", "legendFormat": "pool size", "refId": "B"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    },
-    {
-      "id": 22,
-      "title": "Front Executor Queue / Rejections",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 50},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"expr": "executor_queued_tasks{name=\"novel.front.executor\"}", "legendFormat": "queued", "refId": "A"},
-        {"expr": "executor_queue_remaining_tasks{name=\"novel.front.executor\"}", "legendFormat": "queue remaining", "refId": "B"},
-        {"expr": "sum(rate(novel_front_executor_rejections_total[$__rate_interval]))", "legendFormat": "rejections/s", "refId": "C"}
-      ],
-      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    },
-    {
-      "id": 23,
-      "title": "Reading Heartbeat Outcomes",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 57},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_reading_heartbeat_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops", "min": 0}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    },
-    {
-      "id": 24,
-      "title": "Reading Credited Seconds / s",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 57},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum(rate(novel_reading_credited_seconds_total[$__rate_interval]))", "legendFormat": "credited seconds/s", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
-    },
-    {
-      "id": 25,
-      "title": "Reading Kafka Send / s",
-      "type": "timeseries",
-      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 57},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"expr": "sum by (result) (rate(novel_reading_kafka_send_total[$__rate_interval]))", "legendFormat": "{{result}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops", "min": 0}, "overrides": []},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
-    }
-    ,
-    {
-      "id": 26,
-      "title": "Reading Persisted Seconds / s",
+      "title": "Reading / Degradation Outcomes — Accepted ≠ Persisted",
+      "description": "Heartbeat outcome events/s and recommendation/registration outcomes use the left axis. Redis accepted seconds and committed persisted seconds use the right axis; acceptance is not durability and the time series need not match instantaneously. Parameter validation errors before service handling appear in HTTP metrics, not heartbeat outcomes. Cache fallback errors have partial instrumentation; no claim of complete degradation coverage.",
       "type": "timeseries",
       "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 0,
-        "y": 64
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(novel_reading_kafka_persisted_seconds_total[$__rate_interval]))",
-          "legendFormat": "persisted seconds/s",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    }
-    ,
-    {
-      "id": 27,
-      "title": "Reading Deduplicated Events / s",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 8,
-        "y": 64
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(novel_reading_kafka_deduplicated_total[$__rate_interval]))",
-          "legendFormat": "duplicates/s",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    }
-    ,
-    {
-      "id": 28,
-      "title": "Reading Daily Rows Updated / s",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 8,
-        "x": 16,
-        "y": 64
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(novel_reading_kafka_daily_rows_updated_total[$__rate_interval]))",
-          "legendFormat": "row updates/s",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    }
-    ,
-    {
-      "id": 29,
-      "title": "Reading Kafka Retry / DLT",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 71
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(novel_reading_kafka_retry_total[$__rate_interval]))",
-          "legendFormat": "retry/s",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(novel_reading_kafka_dlt_total[$__rate_interval]))",
-          "legendFormat": "DLT/s",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    }
-    ,
-    {
-      "id": 30,
-      "title": "Reading Dedup Cleanup",
-      "type": "timeseries",
-      "gridPos": {
-        "h": 7,
+        "h": 10,
         "w": 12,
         "x": 12,
-        "y": 71
+        "y": 47
       },
       "datasource": {
         "type": "prometheus",
@@ -449,210 +1200,211 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(novel_reading_dedup_cleanup_deleted_total[24h]))",
-          "legendFormat": "deleted/24h",
-          "refId": "A"
+          "expr": "sum by (instance, result) (rate(novel_reading_heartbeat_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} heartbeat {{result}}/s",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
         },
         {
-          "expr": "sum(increase(novel_reading_dedup_cleanup_failures_total[24h]))",
-          "legendFormat": "failures/24h",
-          "refId": "B"
+          "expr": "sum by (instance) (rate(novel_reading_heartbeat_accepted_seconds_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} Redis accepted seconds/s",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_kafka_persisted_seconds_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} DB persisted seconds/s",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance) (rate(novel_reading_page_registration_total{job=~\"$job\", instance=~\"$instance\", result=\"error\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} page registration errors/s",
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, source) (rate(novel_home_recommendation_source_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} home source {{source}}/s",
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
+        },
+        {
+          "expr": "sum by (instance, result) (rate(novel_home_recommendation_refresh_total{job=~\"$job\", instance=~\"$instance\", result=~\"db_error|redis_error\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}} home refresh {{result}}/s",
+          "refId": "F",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "interval": "15s"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "ops",
+          "noValue": "N/A",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "axisPlacement": "left",
+            "axisLabel": "",
+            "showPoints": "never",
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
           "min": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:reading s/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Accepted / persisted reading seconds/s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:reading s/s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Accepted / persisted reading seconds/s"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
         },
         "tooltip": {
-          "mode": "multi"
+          "mode": "multi",
+          "sort": "none"
         }
-      }
-    },
-    {
-      "id": 31,
-      "title": "Home Recommendation Sources",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 78 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (source) (rate(novel_home_recommendation_source_total[$__rate_interval]))",
-          "legendFormat": "{{source}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 32,
-      "title": "Home Recommendation Refresh Outcomes",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 78 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (result) (rate(novel_home_recommendation_refresh_total[$__rate_interval]))",
-          "legendFormat": "{{result}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 33,
-      "title": "Home Recommendation Generation Duration",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 78 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum(rate(novel_home_recommendation_generation_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(novel_home_recommendation_generation_seconds_count[$__rate_interval])), 1e-9)",
-          "legendFormat": "average",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 34,
-      "title": "Home Recommendation Local Snapshot Age",
-      "description": "Age of this novel-front process's last successful local recommendation snapshot; it is not distributed/global freshness.",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 78 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "max(novel_home_recommendation_local_age_seconds)",
-          "legendFormat": "oldest process-local snapshot",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 35,
-      "title": "Authentication Login / Captcha Requests",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 85 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_login_total[$__rate_interval]))",
-          "legendFormat": "login {{outcome}}",
-          "refId": "A"
-        },
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_captcha_request_total[$__rate_interval]))",
-          "legendFormat": "captcha request {{outcome}}",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 36,
-      "title": "Authentication Captcha Verify / Mail",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 85 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_captcha_verify_total[$__rate_interval]))",
-          "legendFormat": "captcha verify {{outcome}}",
-          "refId": "A"
-        },
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_mail_delivery_total[$__rate_interval]))",
-          "legendFormat": "mail {{outcome}}",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 37,
-      "title": "Authentication Password Upgrade / JWT",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 92 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_password_upgrade_total[$__rate_interval]))",
-          "legendFormat": "password upgrade {{outcome}}",
-          "refId": "A"
-        },
-        {
-          "expr": "sum by (outcome) (rate(novel_auth_jwt_version_total[$__rate_interval]))",
-          "legendFormat": "JWT {{outcome}}",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      }
-    },
-    {
-      "id": 38,
-      "title": "Authentication Argon2 Average Duration",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 92 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "expr": "sum by (operation) (rate(novel_auth_argon2_duration_seconds_sum[$__rate_interval])) / clamp_min(sum by (operation) (rate(novel_auth_argon2_duration_seconds_count[$__rate_interval])), 1e-9)",
-          "legendFormat": "{{operation}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
       }
     }
   ],
   "refresh": "10s",
   "schemaVersion": 41,
-  "tags": ["novel-plus", "performance"],
-  "templating": {"list": []},
-  "time": {"from": "now-15m", "to": "now"},
+  "tags": [
+    "novel-plus",
+    "benchmark",
+    "observability"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up, job)",
+          "refId": "StandardVariableQuery"
+        },
+        "definition": "label_values(up, job)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "text": "novel-front",
+          "value": "novel-front"
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=~\"$job\"}, instance)",
+          "refId": "StandardVariableQuery"
+        },
+        "definition": "label_values(up{job=~\"$job\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "host.docker.internal:8084"
+          ],
+          "value": [
+            "host.docker.internal:8084"
+          ]
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "Novel-Plus Overview",
   "uid": "novel-plus-overview",
-  "version": 1
+  "version": 2
 }

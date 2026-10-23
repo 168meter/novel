@@ -8,6 +8,8 @@ import io.github.xxyopen.util.UUIDUtil;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -18,6 +20,7 @@ import java.io.OutputStream;
  * 项目核心过滤器
  * @author Administrator
  */
+@Slf4j
 public class NovelFilter implements Filter {
 
     /**
@@ -36,6 +39,17 @@ public class NovelFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) servletRequest;
         HttpServletResponse resp = (HttpServletResponse) servletResponse;
         String requestUri = req.getRequestURI();
+
+        try {
+            doFilterInternal(req, resp, filterChain, requestUri);
+        } finally {
+            ThreadLocalUtil.clear();
+        }
+    }
+
+    private void doFilterInternal(HttpServletRequest req, HttpServletResponse resp,
+                                  FilterChain filterChain, String requestUri)
+        throws IOException, ServletException {
 
         //本地图片访问处理
         if (requestUri.contains(Constants.LOCAL_PIC_PREFIX)) {
@@ -81,13 +95,14 @@ public class NovelFilter implements Filter {
         ThreadLocalUtil.setClientId(userMark);
         //根据浏览器类型选择前端模板
         String to = req.getParameter("to");
-        CacheService cacheService = SpringUtil.getBean(CacheService.class);
         if("pc".equals(to)){
             //直接进PC站
-            cacheService.set(CacheKey.TEMPLATE_DIR_KEY+userMark,"",60*60*24);
+            ThreadLocalUtil.setTemplateDirOverride("");
+            saveTemplatePreference(userMark, "");
         }else if("mobile".equals(to)){
             //直接进手机站
-            cacheService.set(CacheKey.TEMPLATE_DIR_KEY+userMark,"mobile/",60*60*24);
+            ThreadLocalUtil.setTemplateDirOverride("mobile/");
+            saveTemplatePreference(userMark, "mobile/");
         }else{
             //自动识别是PC站还是手机站
             if(BrowserUtil.isMobile(req)){
@@ -100,7 +115,16 @@ public class NovelFilter implements Filter {
         }
 
 
-        filterChain.doFilter(servletRequest,servletResponse);
+        filterChain.doFilter(req, resp);
+    }
+
+    private void saveTemplatePreference(String userMark, String templateDir) {
+        try {
+            SpringUtil.getBean(CacheService.class).set(
+                CacheKey.TEMPLATE_DIR_KEY + userMark, templateDir, 60 * 60 * 24);
+        } catch (DataAccessException unavailable) {
+            log.warn("Template preference cache write failed; using request-local selection");
+        }
     }
 
     private boolean isDocumentRequest(String requestUri) {

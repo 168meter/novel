@@ -1,0 +1,38 @@
+# ShardingSphere 5.5.1 resolves $${...} when placeholder-type=environment.
+# The helper passes the password as a quoted YAML scalar in memory only.
+mode:
+  type: Standalone
+  repository:
+    type: JDBC
+dataSources:
+  ds_1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://127.0.0.1:$${MYSQL_HOST_PORT::3307}/$${MYSQL_DATABASE::novel_plus}?allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: $${NOVEL_LOCAL_MYSQL_PASSWORD_YAML::}
+  ds_2:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: com.mysql.cj.jdbc.Driver
+    jdbcUrl: jdbc:mysql://127.0.0.1:$${MYSQL_HOST_PORT::3307}/information_schema?allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: $${NOVEL_LOCAL_MYSQL_PASSWORD_YAML::}
+rules:
+  - !SINGLE
+    tables:
+      - "*.*"
+  - !SHARDING
+    tables:
+      book_content:
+        actualDataNodes: ds_${1}.book_content${0..9}
+        tableStrategy:
+          standard:
+            shardingColumn: index_id
+            shardingAlgorithmName: bookContentSharding
+    shardingAlgorithms:
+      bookContentSharding:
+        type: INLINE
+        props:
+          algorithm-expression: book_content${index_id % 10}
+props:
+  sql-show: false

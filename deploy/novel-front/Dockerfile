@@ -1,6 +1,8 @@
 FROM maven:3.9.11-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 COPY pom.xml pom.xml
+COPY novel-cache-contract/pom.xml novel-cache-contract/pom.xml
+COPY novel-interaction/pom.xml novel-interaction/pom.xml
 COPY novel-common/pom.xml novel-common/pom.xml
 COPY novel-front/pom.xml novel-front/pom.xml
 COPY novel-admin/pom.xml novel-admin/pom.xml
@@ -9,6 +11,8 @@ RUN mvn -B -q \
         -Dmaven.test.skip=true \
         -Dmaven.antrun.skip=true \
         -pl novel-front -am dependency:go-offline
+COPY novel-cache-contract/src novel-cache-contract/src
+COPY novel-interaction/src novel-interaction/src
 COPY novel-common/src novel-common/src
 COPY novel-front/src novel-front/src
 RUN mvn -B -q \

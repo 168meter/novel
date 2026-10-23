@@ -2,6 +2,7 @@ package com.java2nb.novel.service.cache;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.java2nb.novel.cache.ChapterContentCacheKey;
 import com.java2nb.novel.entity.BookContent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -11,8 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 import java.util.UUID;
@@ -26,12 +25,15 @@ import java.util.function.Supplier;
 @Component
 public class ChapterContentCache {
 
-    static final String CONTENT_KEY_PREFIX = "novel:chapter:v1:";
-    static final String LOCK_KEY_PREFIX = "novel:chapter:lock:v1:";
     static final String NULL_MARKER = "__NULL__";
     static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
         "if redis.call('get', KEYS[1]) == ARGV[1] then "
             + "return redis.call('del', KEYS[1]) else return 0 end",
+        Long.class
+    );
+    static final DefaultRedisScript<Long> FILL_IF_OWNER_SCRIPT = new DefaultRedisScript<>(
+        "if redis.call('get', KEYS[2]) == ARGV[1] then "
+            + "redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 else return 0 end",
         Long.class
     );
 
@@ -43,6 +45,7 @@ public class ChapterContentCache {
     private static final int DEFAULT_RETRY_DELAY_MILLIS = 50;
 
     private final StringRedisTemplate redisTemplate;
+    private final FrontChapterCacheInvalidator cacheInvalidator;
     private final ObjectMapper objectMapper;
     private final int contentTtlSeconds;
     private final int jitterBoundSeconds;
@@ -60,6 +63,7 @@ public class ChapterContentCache {
     private final Counter lockErrorCounter;
     private final Counter writeSuccessCounter;
     private final Counter writeErrorCounter;
+    private final Counter writeRejectedCounter;
     private final Timer loadTimer;
 
     @Autowired
@@ -97,6 +101,7 @@ public class ChapterContentCache {
         MeterRegistry meterRegistry
     ) {
         this.redisTemplate = redisTemplate;
+        this.cacheInvalidator = new FrontChapterCacheInvalidator(redisTemplate, meterRegistry);
         this.objectMapper = objectMapper;
         this.contentTtlSeconds = contentTtlSeconds;
         this.jitterBoundSeconds = jitterBoundSeconds;
@@ -114,6 +119,7 @@ public class ChapterContentCache {
         this.lockErrorCounter = meterRegistry.counter("novel.chapter.cache.lock", "result", "error");
         this.writeSuccessCounter = meterRegistry.counter("novel.chapter.cache.write", "result", "success");
         this.writeErrorCounter = meterRegistry.counter("novel.chapter.cache.write", "result", "error");
+        this.writeRejectedCounter = meterRegistry.counter("novel.chapter.cache.write", "result", "rejected");
         this.loadTimer = meterRegistry.timer("novel.chapter.cache.load");
     }
 
@@ -165,8 +171,8 @@ public class ChapterContentCache {
 
             BookContent loaded = load(loader);
             try {
-                store(contentKey, loaded);
-                writeSuccessCounter.increment();
+                if (store(contentKey, lockKey, token, loaded)) writeSuccessCounter.increment();
+                else writeRejectedCounter.increment();
             } catch (RuntimeException exception) {
                 writeErrorCounter.increment();
                 log.warn("Failed to store chapter cache key={}", contentKey, exception);
@@ -178,25 +184,11 @@ public class ChapterContentCache {
     }
 
     public void evict(Long bookId, Long bookIndexId) {
-        String key = contentKey(bookId, bookIndexId);
-        try {
-            redisTemplate.delete(key);
-        } catch (RuntimeException exception) {
-            log.warn("Failed to evict chapter cache key={}", key, exception);
-        }
+        cacheInvalidator.evictNow(bookId, bookIndexId);
     }
 
     public void evictAfterCommit(Long bookId, Long bookIndexId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            evict(bookId, bookIndexId);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                evict(bookId, bookIndexId);
-            }
-        });
+        cacheInvalidator.evictAfterCommit(bookId, bookIndexId);
     }
 
     private BookContent waitForWinner(String contentKey, Supplier<BookContent> loader) {
@@ -229,22 +221,16 @@ public class ChapterContentCache {
         }
     }
 
-    private void store(String key, BookContent content) {
-        if (content == null) {
-            redisTemplate.opsForValue().set(key, NULL_MARKER, nullTtlSeconds, TimeUnit.SECONDS);
-            return;
-        }
+    private boolean store(String key, String lockKey, String token, BookContent content) {
         try {
-            String json = objectMapper.writeValueAsString(content);
+            String json = content == null ? NULL_MARKER : objectMapper.writeValueAsString(content);
             int jitter = jitterBoundSeconds == 0
                 ? 0
                 : Math.floorMod(jitterSource.getAsInt(), jitterBoundSeconds + 1);
-            redisTemplate.opsForValue().set(
-                key,
-                json,
-                (long) contentTtlSeconds + jitter,
-                TimeUnit.SECONDS
-            );
+            long ttl = content == null ? nullTtlSeconds : (long) contentTtlSeconds + jitter;
+            Long filled = redisTemplate.execute(FILL_IF_OWNER_SCRIPT, List.of(key, lockKey), token, json, Long.toString(ttl));
+            if (filled == null) throw new IllegalStateException("Chapter fill returned no Redis result");
+            return filled == 1L;
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Could not serialize chapter cache value for key=" + key, exception);
         }
@@ -272,11 +258,11 @@ public class ChapterContentCache {
     }
 
     private static String contentKey(Long bookId, Long bookIndexId) {
-        return CONTENT_KEY_PREFIX + bookId + ":" + bookIndexId;
+        return ChapterContentCacheKey.of(bookId, bookIndexId);
     }
 
     private static String lockKey(Long bookId, Long bookIndexId) {
-        return LOCK_KEY_PREFIX + bookId + ":" + bookIndexId;
+        return ChapterContentCacheKey.lockOf(bookId, bookIndexId);
     }
 
     private static void sleep(long milliseconds) {

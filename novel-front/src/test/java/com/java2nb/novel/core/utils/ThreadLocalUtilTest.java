@@ -17,8 +17,7 @@ class ThreadLocalUtilTest {
 
     @AfterEach
     void clearThreadLocals() {
-        ThreadLocalUtil.setTemplateDir(null);
-        ThreadLocalUtil.setClientId(null);
+        ThreadLocalUtil.clear();
     }
 
     @Test

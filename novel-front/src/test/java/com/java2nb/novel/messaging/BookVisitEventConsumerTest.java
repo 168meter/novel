@@ -6,6 +6,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.kafka.listener.BatchListenerFailedException;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,8 +50,9 @@ class BookVisitEventConsumerTest {
         doThrow(new IllegalStateException("database offline")).when(writer).write(totals);
 
         assertThatThrownBy(() -> consumer.consume(events))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("database offline");
+            .isInstanceOfSatisfying(BatchListenerFailedException.class,
+                failure -> assertThat(failure.getIndex()).isZero())
+            .hasCauseInstanceOf(IllegalStateException.class);
 
         assertThat(registry.counter("novel.book.visit.kafka.consumed").count()).isZero();
         assertThat(registry.counter("novel.book.visit.kafka.db_updates").count()).isZero();
@@ -63,5 +66,37 @@ class BookVisitEventConsumerTest {
             1L,
             Instant.parse("2026-09-02T00:00:00Z"),
             1);
+    }
+
+    @Test
+    void persistsValidPrefixBeforeReportingBadIndexAndKeepsSuffixForRedelivery() {
+        BookVisitBatchWriter writer = mock(BookVisitBatchWriter.class);
+        var registry = new SimpleMeterRegistry();
+        var consumer = new BookVisitEventConsumer(new BookVisitBatchAggregator(), writer, registry);
+        var a = event(1L);
+        var b = new BookVisitEvent("bad", 2L, 0L, Instant.now(), 1);
+        var c = event(3L);
+        assertThatThrownBy(() -> consumer.consume(List.of(a, b, c)))
+            .isInstanceOfSatisfying(BatchListenerFailedException.class, failure -> {
+                assertThat(failure.getIndex()).isEqualTo(1);
+                verify(writer).write(Map.of(1L, 1L)); // Must have returned/committed before indexed failure.
+            });
+        consumer.consume(List.of(c));
+        verify(writer).write(Map.of(3L, 1L));
+        org.mockito.Mockito.verifyNoMoreInteractions(writer);
+        assertThat(registry.counter("novel.book.visit.kafka.consumed").count()).isEqualTo(2);
+    }
+
+    @Test
+    void databaseFailureBeforeBadRecordCannotClaimPrefixWasProcessed() {
+        BookVisitBatchWriter writer = mock(BookVisitBatchWriter.class);
+        var consumer = new BookVisitEventConsumer(new BookVisitBatchAggregator(), writer, new SimpleMeterRegistry());
+        doThrow(new DataAccessResourceFailureException("database unavailable"))
+            .when(writer).write(Map.of(1L, 1L));
+        var bad = new BookVisitEvent("bad", 2L, 0L, Instant.now(), 1);
+        assertThatThrownBy(() -> consumer.consume(List.of(event(1L), bad, event(3L))))
+            .isInstanceOfSatisfying(BatchListenerFailedException.class,
+                failure -> assertThat(failure.getIndex()).isZero())
+            .hasCauseInstanceOf(DataAccessResourceFailureException.class);
     }
 }
