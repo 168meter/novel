@@ -54,7 +54,7 @@
 
     <update id="addCommentCount" parameterType="long">
         update book
-        set comment_count = comment_count + 1
+        set comment_count = COALESCE(comment_count, 0) + 1
         where id = #{bookId}
     </update>
 

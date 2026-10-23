@@ -36,7 +36,7 @@ public final class FrontChapterCacheInvalidator {
     }
 
     public void evictNow(Long bookId, Long bookIndexId) {
-        evict(Set.of(ChapterContentCacheKey.of(bookId, bookIndexId)));
+        evict(Set.of(ChapterContentCacheKey.of(bookId, bookIndexId), ChapterContentCacheKey.lockOf(bookId, bookIndexId)));
     }
 
     public void evictAfterCommit(Collection<ChapterCacheIdentity> identities) {
@@ -44,6 +44,7 @@ public final class FrontChapterCacheInvalidator {
         for (ChapterCacheIdentity identity : identities) {
             if (identity != null) {
                 keys.add(identity.cacheKey());
+                keys.add(ChapterContentCacheKey.lockOf(identity.bookId(), identity.bookIndexId()));
             }
         }
         if (keys.isEmpty()) {
@@ -65,6 +66,7 @@ public final class FrontChapterCacheInvalidator {
 
     private void evict(Set<String> keys) {
         try {
+            // One Redis DEL atomically removes content and revokes in-flight fill permissions.
             redisTemplate.delete(keys);
             successCounter.increment();
         } catch (RuntimeException exception) {

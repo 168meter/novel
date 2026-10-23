@@ -47,7 +47,7 @@ class FrontChapterCacheInvalidatorTest {
     void immediatelyDeletesTheRequestedKey() {
         invalidator.evictNow(101L, 201L);
 
-        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201"));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201"));
         assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
             "source", "front", "result", "success").count()).isEqualTo(1);
     }
@@ -67,10 +67,7 @@ class FrontChapterCacheInvalidatorTest {
         assertThat(callbacks).hasSize(1);
         callbacks.getFirst().afterCommit();
 
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
     }
 
     @Test

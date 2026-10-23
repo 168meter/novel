@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Map;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.listener.BatchListenerFailedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,8 +42,29 @@ public class BookVisitEventConsumer {
         groupId = "${novel.kafka.book-visit.group-id}"
     )
     public void consume(List<BookVisitEvent> events) {
-        Map<Long, Long> totals = aggregator.aggregate(events);
-        writer.write(totals);
+        for (int index = 0; index < events.size(); index++) {
+            try {
+                aggregator.validate(events.get(index));
+            } catch (BookVisitBatchAggregator.InvalidVisitEventException invalid) {
+                // The writer is a separate transactional bean: return means commit completed.
+                // Never expose an index to Kafka before this prefix has actually committed.
+                persist(events.subList(0, index));
+                throw new BatchListenerFailedException("Invalid visit event", invalid, index);
+            }
+        }
+        persist(events);
+    }
+
+    private void persist(List<BookVisitEvent> events) {
+        if (events.isEmpty()) return;
+        Map<Long, Long> totals;
+        try {
+            totals = aggregator.aggregate(events);
+            writer.write(totals);
+        } catch (RuntimeException notCommitted) {
+            // No prefix committed: seek the whole delivery, not fallback's in-memory batch recovery.
+            throw new BatchListenerFailedException("Visit batch not committed", notCommitted, 0);
+        }
         consumedCounter.increment(events.size());
         databaseUpdateCounter.increment(totals.size());
         batchSizeSummary.record(events.size());

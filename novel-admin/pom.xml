@@ -25,6 +25,7 @@
     </properties>
 
     <dependencies>
+        <dependency><groupId>com.java2nb</groupId><artifactId>novel-interaction</artifactId><version>5.3.3</version></dependency>
         <dependency>
             <groupId>com.java2nb</groupId>
             <artifactId>novel-cache-contract</artifactId>

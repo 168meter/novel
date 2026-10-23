@@ -123,5 +123,42 @@ class BookVisitEventPublisherTest {
             .hasMessageContaining("bookId");
 
         verify(kafkaTemplate, never()).send(any(), any(), any());
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count()).isZero();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "success").count()).isZero();
+    }
+
+    @Test
+    void springSendFailureDoesNotBreakNoncriticalVisitResponse() {
+        when(kafkaTemplate.send(eq("visit-topic"), eq(42L), any(BookVisitEvent.class)))
+            .thenThrow(new org.springframework.kafka.KafkaException("producer closed"));
+        assertThatCode(() -> publisher.publish(42L)).doesNotThrowAnyException();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count()).isEqualTo(1);
+    }
+
+    @Test
+    void distinguishesPendingSubmissionFromAcknowledgementAndCountsOneFinalOutcome() {
+        var pending = new CompletableFuture<SendResult<Long, BookVisitEvent>>();
+        when(kafkaTemplate.send(eq("visit-topic"), eq(42L), any(BookVisitEvent.class)))
+            .thenReturn(pending);
+        assertThat(publisher.publish(42L)).isTrue();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "success").count()).isZero();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count()).isZero();
+        assertThat(pending.completeExceptionally(new org.springframework.kafka.KafkaException("offline"))).isTrue();
+        assertThat(pending.completeExceptionally(new KafkaException("second completion"))).isFalse();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count()).isEqualTo(1);
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "success").count()).isZero();
+    }
+
+    @Test
+    void rejectsKnownFailuresFromBothKafkaExceptionFamiliesAndAlreadyFailedFutures() {
+        when(kafkaTemplate.send(eq("visit-topic"), eq(42L), any(BookVisitEvent.class)))
+            .thenThrow(new KafkaException("metadata"))
+            .thenThrow(new org.springframework.kafka.KafkaException("closed"))
+            .thenReturn(CompletableFuture.failedFuture(new KafkaException("already failed")));
+        assertThat(publisher.publish(42L)).isFalse();
+        assertThat(publisher.publish(42L)).isFalse();
+        assertThat(publisher.publish(42L)).isFalse();
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "failed").count()).isEqualTo(3);
+        assertThat(registry.counter("novel.book.visit.kafka.send", "result", "success").count()).isZero();
     }
 }

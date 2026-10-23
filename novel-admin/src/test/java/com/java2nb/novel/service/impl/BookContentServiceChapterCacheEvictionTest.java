@@ -44,7 +44,7 @@ class BookContentServiceChapterCacheEvictionTest {
 
         service.save(content);
 
-        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201"));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201"));
     }
 
     @Test
@@ -61,13 +61,14 @@ class BookContentServiceChapterCacheEvictionTest {
     @Test
     void updateResolvesIdentityBeforeMutationAndEvictsAfterSuccess() {
         BookContentDO content = content(301L, null);
-        when(contentDao.listCacheIdentitiesByIds(List.of(301L)))
-            .thenReturn(List.of(identity(101L, 201L)));
+        when(contentDao.get(301L)).thenReturn(content(301L,201L));
+        when(indexDao.get(201L)).thenReturn(index(201L,101L));
+        content.setContent("edited");
         when(contentDao.update(content)).thenReturn(1);
 
         service.update(content);
 
-        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201"));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201"));
     }
 
     @Test
@@ -78,7 +79,17 @@ class BookContentServiceChapterCacheEvictionTest {
 
         service.remove(301L);
 
-        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201"));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201"));
+    }
+
+    @Test
+    void movingBodyBetweenChaptersIsRejectedWithoutInvalidation() {
+        BookContentDO patch=content(301L,202L);
+        when(contentDao.get(301L)).thenReturn(content(301L,201L));
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->service.update(patch))
+            .isInstanceOf(com.java2nb.common.exception.BusinessException.class);
+        verify(contentDao,never()).update(org.mockito.ArgumentMatchers.any());
+        verify(redisTemplate,never()).delete(anyCollection());
     }
 
     @Test
@@ -91,10 +102,7 @@ class BookContentServiceChapterCacheEvictionTest {
         service.batchRemove(rowIds);
 
         verify(contentDao).listCacheIdentitiesByIds(List.of(rowIds));
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
     }
 
     private BookContentDO content(long id, Long indexId) {

@@ -35,6 +35,43 @@ import com.java2nb.common.utils.R;
 public class BookCommentController {
     @Autowired
     private BookCommentService bookCommentService;
+    @Autowired private com.java2nb.novel.comment.CommentModerationService moderation;
+    @Autowired private com.java2nb.novel.dao.CommentModerationDao moderationDao;
+
+    @GetMapping("/replies")
+    @RequiresPermissions("novel:bookComment:bookComment")
+    public String replies() {return "novel/bookComment/replies";}
+
+    @ResponseBody @GetMapping("/replyList")
+    @RequiresPermissions("novel:bookComment:bookComment")
+    public R replyList(@RequestParam(required=false) Integer status,@RequestParam(required=false) Long commentId,
+        @RequestParam(defaultValue="0") int offset,@RequestParam(defaultValue="10") int limit) {
+        if(status!=null && (status<0 || status>2) || offset<0 || limit<1 || limit>100) return R.error(400,"参数错误");
+        return R.ok().put("data",new PageBean(moderationDao.listReplies(status,commentId,offset,limit),moderationDao.countReplies(status,commentId)));
+    }
+
+    @ResponseBody @PostMapping("/audit")
+    @RequiresPermissions("novel:bookComment:edit")
+    public R audit(@RequestParam Long id,@RequestParam Long version,@RequestParam int status) {
+        return R.ok().put("data",moderation.auditComment(id,version,status));
+    }
+
+    @ResponseBody @PostMapping("/replyAudit")
+    @RequiresPermissions("novel:bookComment:edit")
+    public R replyAudit(@RequestParam Long id,@RequestParam Long version,@RequestParam int status) {
+        return R.ok().put("data",moderation.auditReply(id,version,status));
+    }
+
+    @ResponseBody @PostMapping("/replyEdit")
+    @RequiresPermissions("novel:bookComment:edit")
+    public R replyEdit(@RequestParam Long id,@RequestParam Long version,@RequestParam String content) {
+        return R.ok().put("data",moderation.editReply(id,null,version,content));
+    }
+
+    @ResponseBody @PostMapping("/replyRemove")
+    @RequiresPermissions("novel:bookComment:remove")
+    public R replyRemove(@RequestParam Long id) {moderation.removeReply(id);return R.ok();}
+
 
     @GetMapping()
     @RequiresPermissions("novel:bookComment:bookComment")
@@ -99,7 +136,7 @@ public class BookCommentController {
      */
     @ApiOperation(value = "修改小说评论表", notes = "修改小说评论表")
     @ResponseBody
-    @RequestMapping("/update")
+    @PostMapping("/update")
     @RequiresPermissions("novel:bookComment:edit")
     public R update( BookCommentDO bookComment) {
             bookCommentService.update(bookComment);

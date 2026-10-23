@@ -8,6 +8,7 @@
     <version>5.3.3</version>
     <modules>
         <module>novel-cache-contract</module>
+        <module>novel-interaction</module>
         <module>novel-common</module>
         <module>novel-front</module>
         <module>novel-crawl</module>

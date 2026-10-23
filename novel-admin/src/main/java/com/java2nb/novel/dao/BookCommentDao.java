@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 
 /**
  * 小说评论表
@@ -31,4 +34,19 @@ public interface BookCommentDao {
 	int remove(Long id);
 	
 	int batchRemove(Long[] ids);
+
+    @Select("SELECT id FROM book WHERE id=#{value} FOR UPDATE")
+    Long lockBook(Long bookId);
+
+    @Select("SELECT id,book_id FROM book_comment WHERE id=#{value} FOR UPDATE")
+    BookCommentDO lockComment(Long id);
+
+    @Delete("DELETE FROM book_comment_reply WHERE comment_id=#{value}")
+    int removeReplies(Long commentId);
+
+    @Update("UPDATE book SET comment_count=GREATEST(COALESCE(comment_count,0)-1,0) WHERE id=#{value}")
+    int decrementBookCommentCount(Long bookId);
+
+    @Update("UPDATE book SET comment_count=COALESCE(comment_count,0)+1 WHERE id=#{value}")
+    int incrementBookCommentCount(Long bookId);
 }

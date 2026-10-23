@@ -10,6 +10,9 @@ import com.java2nb.novel.service.BookCommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.Arrays;
+import java.util.Objects;
 
 import java.util.List;
 import java.util.Map;
@@ -21,6 +24,8 @@ public class BookCommentServiceImpl implements BookCommentService {
 
     @Autowired
     private BookCommentDao bookCommentDao;
+    @Autowired
+    private com.java2nb.novel.comment.CommentModerationService moderation;
     @Autowired
     private BookDao bookDao;
     @Autowired
@@ -55,23 +60,23 @@ public class BookCommentServiceImpl implements BookCommentService {
     }
 
     @Override
-    public int save(BookCommentDO bookComment) {
-        return bookCommentDao.save(bookComment);
+    public int save(BookCommentDO row) {
+        if(row==null) throw new com.java2nb.novel.comment.ModerationException(400);
+        moderation.createComment(row.getCreateUserId(),row.getBookId(),row.getCommentContent(),null);return 1;
     }
 
     @Override
-    public int update(BookCommentDO bookComment) {
-        return bookCommentDao.update(bookComment);
+    public int update(BookCommentDO row) {
+        if(row==null || row.getId()==null) return 0;
+        // General edit cannot be used as a second moderation route.
+        if(row.getAuditStatus()!=null) throw new com.java2nb.novel.comment.ModerationException(400);
+        if(row.getCommentContent()==null) return 0;
+        moderation.editComment(row.getId(),null,row.getModerationVersion(),row.getCommentContent());return 1;
     }
 
     @Override
-    public int remove(Long id) {
-        return bookCommentDao.remove(id);
-    }
+    public int remove(Long id) { return moderation.removeComment(id); }
 
     @Override
-    public int batchRemove(Long[] ids) {
-        return bookCommentDao.batchRemove(ids);
-    }
-
+    public int batchRemove(Long[] ids) { return moderation.batchRemove(ids); }
 }

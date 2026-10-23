@@ -13,6 +13,7 @@ import java.util.Date;
  */
 @Data
 public class BookCommentReplyVO extends BookCommentReply {
+    private Byte parentAuditStatus;
 
     @JsonSerialize(using = CommentUserNameSerialize.class)
     private String createUserName;

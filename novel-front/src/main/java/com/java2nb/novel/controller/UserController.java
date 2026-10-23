@@ -303,6 +303,14 @@ public class UserController extends BaseController {
     /**
      * 分页查询用户书评
      */
+    @GetMapping("listReplyByPage")
+    public RestResult<?> listReplyByPage(@RequestParam(value="curr",defaultValue="1") int page,
+        @RequestParam(value="limit",defaultValue="5") int size,HttpServletRequest request) {
+        UserDetails user=getUserDetails(request);
+        if(user==null) return RestResult.fail(ResponseStatus.NO_LOGIN);
+        return RestResult.ok(bookService.listCommentReplyByPage(user.getId(),null,page,size));
+    }
+
     @GetMapping("listCommentByPage")
     public RestResult<?> listCommentByPage(@RequestParam(value = "curr", defaultValue = "1") int page,
         @RequestParam(value = "limit", defaultValue = "5") int pageSize, HttpServletRequest request) {

@@ -45,9 +45,9 @@ class PageControllerHttpSemanticsTest {
 
     @BeforeEach
     void setUp() {
-        books = mock(BookService.class);
+        books = mock(BookService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         users = mock(UserService.class);
-        contents = mock(BookContentService.class);
+        contents = mock(BookContentService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         registrar = mock(ReadingPageVisitRegistrar.class);
         metrics = new SimpleMeterRegistry();
         ThreadLocalUtil.setTemplateDirOverride("");
@@ -68,6 +68,14 @@ class PageControllerHttpSemanticsTest {
             .andExpect(status().isNotFound())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
             .andExpect(content().string("error-page-marker"));
+    }
+
+    @Test
+    void homeRejectedSubmissionReturns503() throws Exception {
+        mockMvc(new RejectingExecutor()).perform(get("/"))
+            .andExpect(status().isServiceUnavailable());
+        org.assertj.core.api.Assertions.assertThat(metrics.counter("novel.home.request.rejected").count()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(metrics.counter("novel.chapter.request.rejected").count()).isZero();
     }
 
     @Test
@@ -109,6 +117,23 @@ class PageControllerHttpSemanticsTest {
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
             .andExpect(content().string("contentIdHidden"));
+    }
+
+    @Test
+    void cacheHitReusesThePageOwnershipLookupWithoutAnotherMapperCall() throws Exception {
+        arrangeChapter((byte) 0, "chapter text");
+        var indexes=mock(com.java2nb.novel.mapper.BookIndexMapper.class);
+        BookIndex index=new BookIndex();index.setId(100L);index.setBookId(1L);
+        index.setStorageType("db");index.setIndexNum(10);index.setIsVip((byte)0);
+        when(indexes.selectByPrimaryKey(100L)).thenReturn(Optional.of(index));
+        when(books.findBookIndex(1L,100L)).thenAnswer(invocation -> indexes.selectByPrimaryKey(100L));
+        var cache=mock(com.java2nb.novel.service.cache.ChapterContentCache.class);
+        BookContent body=new BookContent();body.setContent("chapter text");
+        when(cache.getOrLoad(org.mockito.ArgumentMatchers.eq(1L),org.mockito.ArgumentMatchers.eq(100L),org.mockito.ArgumentMatchers.any())).thenReturn(body);
+        contents=new com.java2nb.novel.service.impl.DbBookContentServiceImpl(
+            mock(com.java2nb.novel.mapper.BookContentMapper.class),cache,indexes);
+        mockMvc(new DirectExecutor()).perform(get("/book/1/100.html")).andExpect(status().isOk());
+        org.mockito.Mockito.verify(indexes,org.mockito.Mockito.times(1)).selectByPrimaryKey(100L);
     }
 
     @Test

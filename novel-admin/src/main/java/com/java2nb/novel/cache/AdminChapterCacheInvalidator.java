@@ -36,7 +36,10 @@ public final class AdminChapterCacheInvalidator {
     public void evictAfterCommit(Collection<ChapterCacheIdentity> identities) {
         Set<String> keys = new LinkedHashSet<>();
         for (ChapterCacheIdentity identity : identities) {
-            if (identity != null) keys.add(identity.cacheKey());
+            if (identity != null) {
+                keys.add(identity.cacheKey());
+                keys.add(ChapterContentCacheKey.lockOf(identity.bookId(), identity.bookIndexId()));
+            }
         }
         if (keys.isEmpty()) return;
 

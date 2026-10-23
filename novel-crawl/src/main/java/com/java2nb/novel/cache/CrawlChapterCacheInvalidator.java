@@ -34,6 +34,7 @@ public final class CrawlChapterCacheInvalidator {
         for (ChapterCacheIdentity identity : identities) {
             if (identity != null) {
                 keys.add(identity.cacheKey());
+                keys.add(ChapterContentCacheKey.lockOf(identity.bookId(), identity.bookIndexId()));
             }
         }
         if (keys.isEmpty()) {

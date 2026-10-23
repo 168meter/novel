@@ -14,6 +14,8 @@ import java.util.Optional;
  * @author 11797
  */
 public interface BookService {
+    void editComment(Long userId,Long id,Long version,String content);
+    void editReply(Long userId,Long id,Long version,String content);
 
     /**
      * 查询首页小说设置列表数据
@@ -84,6 +86,40 @@ public interface BookService {
 
     /** Returns empty when the chapter does not belong to the requested book. */
     Optional<BookIndex> findBookIndex(Long bookId, Long bookIndexId);
+
+    /** A request-local result of the authoritative ownership lookup, never a client DTO. */
+    default Optional<OwnedChapter> findOwnedChapter(Long bookId, Long bookIndexId) {
+        if (bookId == null || bookIndexId == null || bookId <= 0 || bookIndexId <= 0) {
+            return Optional.empty();
+        }
+        return findBookIndex(bookId, bookIndexId)
+            .filter(index -> bookId.equals(index.getBookId()) && bookIndexId.equals(index.getId()))
+            .map(OwnedChapter::new);
+    }
+
+    /** Only the ownership lookup can create this immutable proof. Do not cache it. */
+    final class OwnedChapter {
+        private final BookIndex index;
+
+        private OwnedChapter(BookIndex index) {
+            this.index = copy(index);
+        }
+
+        public Long bookId() { return index.getBookId(); }
+        public Long chapterId() { return index.getId(); }
+        public BookIndex bookIndex() { return copy(index); }
+
+        private static BookIndex copy(BookIndex source) {
+            BookIndex result = new BookIndex();
+            result.setId(source.getId());result.setBookId(source.getBookId());
+            result.setIndexNum(source.getIndexNum());result.setIndexName(source.getIndexName());
+            result.setWordCount(source.getWordCount());result.setIsVip(source.getIsVip());
+            result.setBookPrice(source.getBookPrice());result.setStorageType(source.getStorageType());
+            result.setCreateTime(source.getCreateTime() == null ? null : new Date(source.getCreateTime().getTime()));
+            result.setUpdateTime(source.getUpdateTime() == null ? null : new Date(source.getUpdateTime().getTime()));
+            return result;
+        }
+    }
 
     /**
      * 查询上一章节目录ID

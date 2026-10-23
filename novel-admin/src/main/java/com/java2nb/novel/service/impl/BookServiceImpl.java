@@ -44,11 +44,13 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public int save(BookDO book) {
+        book.setCommentCount(0);
         return bookDao.save(book);
     }
 
     @Override
     public int update(BookDO book) {
+        book.setCommentCount(null);
         return bookDao.update(book);
     }
 
@@ -68,8 +70,18 @@ public class BookServiceImpl implements BookService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public int batchRemove(Long[] ids) {
-        return bookDao.batchRemove(ids);
+        java.util.Set<ChapterCacheIdentity> identities = new java.util.LinkedHashSet<>();
+        for (Long bookId : ids) {
+            for (Long indexId : bookIndexDao.getIdsByBookId(bookId)) {
+                identities.add(new ChapterCacheIdentity(bookId, indexId));
+            }
+        }
+        int affected = bookDao.batchRemove(ids);
+        // Preserve the existing batch-delete SQL/semantics; only add cache notification.
+        if (affected > 0) chapterCacheInvalidator.evictAfterCommit(identities);
+        return affected;
     }
 
     @Override

@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -155,8 +156,26 @@ public class BookServiceImpl implements BookService {
                 }
             } else {
                 //更新
-                bookIndexMapper.updateByPrimaryKeySelective(bookIndex);
                 BookIndex existing = existBookIndexMap.get(bookIndex.getIndexNum());
+                if (!Objects.equals(existing.getId(), bookIndex.getId())
+                    || !Objects.equals(existing.getId(), bookContent.getIndexId())
+                    || (bookIndex.getBookId() != null && !Objects.equals(book.getId(), bookIndex.getBookId()))
+                    || (bookIndex.getStorageType() != null && !Objects.equals(existing.getStorageType(), bookIndex.getStorageType()))) {
+                    throw new IllegalArgumentException("Existing chapter identity is immutable");
+                }
+                // Explicit editable columns: do not let a generic update rewrite book_id/storage_type.
+                int affected = bookIndexMapper.update(update(BookIndexDynamicSqlSupport.bookIndex)
+                    .set(BookIndexDynamicSqlSupport.indexNum).equalToWhenPresent(bookIndex.getIndexNum())
+                    .set(BookIndexDynamicSqlSupport.indexName).equalToWhenPresent(bookIndex.getIndexName())
+                    .set(BookIndexDynamicSqlSupport.wordCount).equalToWhenPresent(bookIndex.getWordCount())
+                    .set(BookIndexDynamicSqlSupport.isVip).equalToWhenPresent(bookIndex.getIsVip())
+                    .set(BookIndexDynamicSqlSupport.bookPrice).equalToWhenPresent(bookIndex.getBookPrice())
+                    .set(BookIndexDynamicSqlSupport.createTime).equalToWhenPresent(bookIndex.getCreateTime())
+                    .set(BookIndexDynamicSqlSupport.updateTime).equalToWhenPresent(bookIndex.getUpdateTime())
+                    .where(BookIndexDynamicSqlSupport.id, isEqualTo(existing.getId()))
+                    .and(BookIndexDynamicSqlSupport.bookId, isEqualTo(book.getId()))
+                    .build().render(RenderingStrategies.MYBATIS3));
+                if (affected != 1) throw new IllegalStateException("Chapter no longer exists in the expected book");
                 bookContentServiceMap.get(existing.getStorageType()).updateBookContent(bookContent, book.getId());
                 if ("db".equals(existing.getStorageType())) {
                     identities.add(new ChapterCacheIdentity(book.getId(), existing.getId()));

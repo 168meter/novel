@@ -96,13 +96,13 @@ public class PageController extends BaseController {
     @RequestMapping(path = {"/", "/index", "/index.html"})
     public String index(Model model) {
         //加载小说首页小说基本信息线程
-        CompletableFuture<Map<String, List<BookSettingVO>>> bookCompletableFuture = CompletableFuture.supplyAsync(
-            bookService::listBookSettingVO, threadPoolExecutor);
+        CompletableFuture<Map<String, List<BookSettingVO>>> bookCompletableFuture = submitPageTask(
+            bookService::listBookSettingVO, "novel.home.request.rejected");
         //加载首页新闻线程
-        CompletableFuture<List<News>> newsCompletableFuture = CompletableFuture.supplyAsync(newsService::listIndexNews,
-            threadPoolExecutor);
-        model.addAttribute("bookMap", bookCompletableFuture.get());
-        model.addAttribute("newsList", newsCompletableFuture.get());
+        CompletableFuture<List<News>> newsCompletableFuture = submitPageTask(
+            newsService::listIndexNews, "novel.home.request.rejected");
+        model.addAttribute("bookMap", awaitPageTask(bookCompletableFuture, "novel.home.request.rejected"));
+        model.addAttribute("newsList", awaitPageTask(newsCompletableFuture, "novel.home.request.rejected"));
         return ThreadLocalUtil.getTemplateDir() + "index";
     }
 
@@ -262,10 +262,11 @@ public class PageController extends BaseController {
         HttpServletRequest request, Model model) {
         // 每个章节请求只占用一个线程池任务，避免高并发下单个请求放大为多个排队任务
         CompletableFuture<ChapterPageResult> chapterPageDataCompletableFuture = submitReadingPageTask(() -> {
-            BookIndex bookIndex = bookService.findBookIndex(bookId, bookIndexId).orElse(null);
-            if (bookIndex == null) {
+            BookService.OwnedChapter owned = bookService.findOwnedChapter(bookId, bookIndexId).orElse(null);
+            if (owned == null) {
                 return ChapterPageResult.failure(ChapterPageFailure.CHAPTER_NOT_FOUND);
             }
+            BookIndex bookIndex = owned.bookIndex();
             Book book = bookService.findBook(bookId).orElse(null);
             if (book == null) {
                 return ChapterPageResult.failure(ChapterPageFailure.BOOK_NOT_FOUND);
@@ -279,7 +280,7 @@ public class PageController extends BaseController {
             if (bookContentService == null) {
                 return ChapterPageResult.failure(ChapterPageFailure.INVALID_STORAGE_TYPE);
             }
-            BookContent bookContent = bookContentService.queryBookContent(bookId, bookIndexId);
+            BookContent bookContent = bookContentService.queryBookContent(owned);
             if (bookContent == null || StringUtils.isBlank(bookContent.getContent())) {
                 return ChapterPageResult.failure(ChapterPageFailure.CONTENT_NOT_FOUND);
             }
@@ -323,21 +324,30 @@ public class PageController extends BaseController {
     }
 
     private <T> CompletableFuture<T> submitReadingPageTask(Supplier<T> task) {
+        return submitPageTask(task, "novel.chapter.request.rejected");
+    }
+
+    private <T> CompletableFuture<T> submitPageTask(Supplier<T> task, String rejectionMetric) {
         try {
             return CompletableFuture.supplyAsync(task, threadPoolExecutor);
         } catch (RejectedExecutionException exception) {
-            throw readingPageOverloaded(exception);
+            throw pageOverloaded(exception, rejectionMetric);
         }
     }
 
     private <T> T awaitReadingPageTask(CompletableFuture<T> task)
+        throws ExecutionException, InterruptedException {
+        return awaitPageTask(task, "novel.chapter.request.rejected");
+    }
+
+    private <T> T awaitPageTask(CompletableFuture<T> task, String rejectionMetric)
         throws ExecutionException, InterruptedException {
         try {
             return task.get();
         } catch (ExecutionException exception) {
             RejectedExecutionException rejection = findExecutorRejection(exception);
             if (rejection != null) {
-                throw readingPageOverloaded(rejection);
+                throw pageOverloaded(rejection, rejectionMetric);
             }
             throw exception;
         }
@@ -354,11 +364,11 @@ public class PageController extends BaseController {
         return null;
     }
 
-    private ResponseStatusException readingPageOverloaded(RejectedExecutionException exception) {
-        meterRegistry.counter("novel.chapter.request.rejected").increment();
-        log.warn("Reading page task rejected by executor");
+    private ResponseStatusException pageOverloaded(RejectedExecutionException exception, String rejectionMetric) {
+        meterRegistry.counter(rejectionMetric).increment();
+        log.warn("Page task rejected by executor; counter={}", rejectionMetric);
         return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-            "Reading page temporarily unavailable", exception);
+            "Page temporarily unavailable", exception);
     }
 
     private record ChapterPageData(Book book, BookIndex bookIndex, Long preBookIndexId, Long nextBookIndexId,
@@ -418,7 +428,9 @@ public class PageController extends BaseController {
     @RequestMapping("/book/reply-{commentId}.html")
     public String commentReplyList(@PathVariable("commentId") Long commentId, Model model) {
         model.addAttribute("commentId", commentId);
-        model.addAttribute("commentContent", bookService.getBookComment(commentId).getCommentContent());
+        BookComment comment=bookService.getBookComment(commentId);
+        if(comment==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Comment not found");
+        model.addAttribute("commentContent", comment.getCommentContent());
         return "book/book_comment_reply";
     }
 

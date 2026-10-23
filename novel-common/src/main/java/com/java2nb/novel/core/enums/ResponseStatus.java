@@ -34,6 +34,9 @@ public enum ResponseStatus implements IResultCode {
      * 评论相关错误
      * */
     HAS_COMMENTS(3001, "已评价过该书籍！"),
+    COMMENT_VERSION_CONFLICT(3002, "内容或审核状态已变化，请刷新后重试"),
+    COMMENT_NOT_AVAILABLE(3003, "评论不存在或暂不可见"),
+    COMMENT_OWNER_REQUIRED(3004, "只能修改自己的评论或回复"),
 
     /**
      * 作者相关错误

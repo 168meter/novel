@@ -54,10 +54,7 @@ class AdminChapterCacheInvalidatorTest {
         verify(redisTemplate, never()).delete(anyCollection());
         TransactionSynchronizationManager.getSynchronizations().get(0).afterCommit();
 
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
     }
 
     @Test

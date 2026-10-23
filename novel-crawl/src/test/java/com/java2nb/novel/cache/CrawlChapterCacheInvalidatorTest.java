@@ -50,10 +50,7 @@ class CrawlChapterCacheInvalidatorTest {
             new ChapterCacheIdentity(101L, 202L)
         ));
 
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
         assertThat(meterRegistry.counter("novel.chapter.cache.eviction",
             "source", "crawl", "result", "success").count()).isEqualTo(1);
     }
@@ -72,10 +69,7 @@ class CrawlChapterCacheInvalidatorTest {
         assertThat(callbacks).hasSize(1);
         callbacks.getFirst().afterCommit();
 
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
     }
 
     @Test

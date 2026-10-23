@@ -87,7 +87,6 @@
     <update id="update" parameterType="com.java2nb.novel.domain.BookContentDO">
         update book_content
         <set>
-            <if test="indexId != null">`index_id` = #{indexId},</if>
             <if test="content != null">`content` = #{content}</if>
         </set>
         where id = #{id}

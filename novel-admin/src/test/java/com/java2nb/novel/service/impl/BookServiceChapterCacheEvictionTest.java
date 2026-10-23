@@ -17,6 +17,20 @@ import static org.mockito.Mockito.when;
 class BookServiceChapterCacheEvictionTest {
 
     @Test
+    void batchBookDeleteInvalidatesKnownChaptersWithoutChangingCascadeSemantics() {
+        BookDao books=mock(BookDao.class);BookIndexDao indexes=mock(BookIndexDao.class);BookContentDao bodies=mock(BookContentDao.class);
+        var redis=mock(StringRedisTemplate.class);
+        var invalidator=new AdminChapterCacheInvalidator(redis,new SimpleMeterRegistry());
+        var service=new BookServiceImpl(books,indexes,bodies,invalidator);
+        Long[] ids={101L,102L};when(indexes.getIdsByBookId(101L)).thenReturn(List.of(201L));
+        when(indexes.getIdsByBookId(102L)).thenReturn(List.of(202L));when(books.batchRemove(ids)).thenReturn(2);
+        service.batchRemove(ids);
+        verify(redis).delete(Set.of("novel:chapter:v1:101:201","novel:chapter:lock:v1:101:201","novel:chapter:v1:102:202","novel:chapter:lock:v1:102:202"));
+        org.mockito.Mockito.verifyNoInteractions(bodies);
+        verify(indexes,org.mockito.Mockito.never()).batchRemove(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void wholeBookDeleteEvictsKnownChapterIdsAsOneBatchAfterMutation() {
         BookDao bookDao = mock(BookDao.class);
         BookIndexDao indexDao = mock(BookIndexDao.class);
@@ -30,9 +44,6 @@ class BookServiceChapterCacheEvictionTest {
 
         service.remove(101L);
 
-        verify(redisTemplate).delete(Set.of(
-            "novel:chapter:v1:101:201",
-            "novel:chapter:v1:101:202"
-        ));
+        verify(redisTemplate).delete(Set.of("novel:chapter:v1:101:201", "novel:chapter:lock:v1:101:201", "novel:chapter:v1:101:202", "novel:chapter:lock:v1:101:202"));
     }
 }

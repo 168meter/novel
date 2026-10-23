@@ -18,6 +18,9 @@ import java.util.Date;
 public class BookCommentDO implements Serializable {
 
     private static final long serialVersionUID = 1L;
+    private Long moderationVersion;
+    public Long getModerationVersion() { return moderationVersion; }
+    public void setModerationVersion(Long value) { moderationVersion=value; }
 
 
     //主键

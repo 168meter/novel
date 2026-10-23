@@ -2,6 +2,8 @@ package com.java2nb.novel.service.impl;
 
 import com.java2nb.novel.entity.BookContent;
 import com.java2nb.novel.mapper.BookContentMapper;
+import com.java2nb.novel.mapper.BookIndexMapper;
+import com.java2nb.novel.entity.BookIndex;
 import com.java2nb.novel.service.cache.ChapterContentCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mybatis.dynamic.sql.select.render.SelectStatementProvider;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,12 +32,15 @@ class DbBookContentServiceImplTest {
 
     @Mock private BookContentMapper bookContentMapper;
     @Mock private ChapterContentCache chapterContentCache;
+    @Mock private BookIndexMapper bookIndexMapper;
 
     private DbBookContentServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new DbBookContentServiceImpl(bookContentMapper, chapterContentCache);
+        service = new DbBookContentServiceImpl(bookContentMapper, chapterContentCache, bookIndexMapper);
+        BookIndex chapter = new BookIndex(); chapter.setId(CHAPTER_ID); chapter.setBookId(BOOK_ID);
+        org.mockito.Mockito.lenient().when(bookIndexMapper.selectByPrimaryKey(CHAPTER_ID)).thenReturn(Optional.of(chapter));
     }
 
     @Test
@@ -69,6 +75,12 @@ class DbBookContentServiceImplTest {
         service.queryBookContent(BOOK_ID, CHAPTER_ID);
 
         assertThat(loader.getValue().get()).isNull();
+    }
+
+    @Test
+    void mismatchedBookNeverReadsOrWritesCache() {
+        assertThat(service.queryBookContent(999L, CHAPTER_ID)).isNull();
+        org.mockito.Mockito.verifyNoInteractions(chapterContentCache, bookContentMapper);
     }
 
     @SuppressWarnings("unchecked")

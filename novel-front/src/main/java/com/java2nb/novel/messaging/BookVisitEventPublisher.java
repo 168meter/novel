@@ -5,10 +5,11 @@ import com.java2nb.novel.event.BookVisitEvent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.common.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
 /**
@@ -41,20 +42,23 @@ public class BookVisitEventPublisher {
             "novel.book.visit.kafka.send", "result", "failed");
     }
 
-    public void publish(Long bookId) {
+    /** True means submitted with no failure observed yet, never broker-confirmed delivery. */
+    public boolean publish(Long bookId) {
         BookVisitEvent event = BookVisitEvent.create(bookId, clock);
+        CompletableFuture<SendResult<Long, BookVisitEvent>> pending;
         try {
-            kafkaTemplate.send(properties.topic(), bookId, event)
-                .whenComplete((result, failure) -> {
-                    if (failure == null) {
-                        successCounter.increment();
-                    } else {
-                        recordFailure(bookId, event, failure);
-                    }
-                });
-        } catch (KafkaException failure) {
+            pending = java.util.Objects.requireNonNull(
+                kafkaTemplate.send(properties.topic(), bookId, event), "Kafka send future");
+        } catch (RuntimeException failure) {
             recordFailure(bookId, event, failure);
+            return false;
         }
+        // Outside the send catch: callback instrumentation must not be counted as a second send failure.
+        pending.whenComplete((result, failure) -> {
+            if (failure == null) successCounter.increment();
+            else recordFailure(bookId, event, failure);
+        });
+        return !pending.isCompletedExceptionally();
     }
 
     private void recordFailure(Long bookId, BookVisitEvent event, Throwable failure) {

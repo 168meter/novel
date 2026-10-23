@@ -1,0 +1,7 @@
+FROM eclipse-temurin:21.0.8_9-jre-alpine
+RUN apk add --no-cache wget fontconfig ttf-dejavu && addgroup -S -g 10001 novel && adduser -S -D -H -u 10001 -G novel novel
+WORKDIR /app
+COPY novel-admin/target/novel-admin-5.3.3.jar /app/novel-admin.jar
+RUN mkdir -p /app/logs /app/runtime /app/pic && chown -R 10001:10001 /app
+USER 10001:10001
+ENTRYPOINT ["java","-Djava.awt.headless=true","-jar","/app/novel-admin.jar"]
