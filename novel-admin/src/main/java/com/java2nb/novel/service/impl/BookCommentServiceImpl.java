@@ -10,8 +10,10 @@ import com.java2nb.novel.service.BookCommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Objects;
 
 import java.util.List;
@@ -40,18 +42,45 @@ public class BookCommentServiceImpl implements BookCommentService {
     public List<BookCommentDO> list(Map<String, Object> map) {
         List<BookCommentDO> list = bookCommentDao.list(map);
         if (!CollectionUtils.isEmpty(list)) {
-            List<Long> bookIds = list.stream().map(BookCommentDO::getBookId).collect(Collectors.toList());
+            // Enrich valid rows without changing the original page or its ordering.
+            List<BookCommentDO> comments = list.stream().filter(Objects::nonNull).collect(Collectors.toList());
+            if (comments.isEmpty()) {
+                return list;
+            }
+            List<Long> bookIds = comments.stream().map(BookCommentDO::getBookId).collect(Collectors.toList());
             Map<Long, String> bookNameMap = bookDao.batchGet(bookIds).stream()
                 .collect(Collectors.toMap(BookDO::getId, BookDO::getBookName));
-            List<Long> userIds = list.stream().map(BookCommentDO::getCreateUserId).collect(Collectors.toList());
-            Map<Long, String> userNameMap = userDao.batchGet(userIds).stream()
-                .collect(Collectors.toMap(UserDO::getId, UserDO::getUsername));
-            list.forEach(v -> {
+            List<Long> userIds = comments.stream().map(BookCommentDO::getCreateUserId)
+                .filter(Objects::nonNull).collect(Collectors.toList());
+            Map<Long, UserDO> userMap = new HashMap<>();
+            if (!userIds.isEmpty()) {
+                List<UserDO> users = userDao.batchGet(userIds);
+                if (!CollectionUtils.isEmpty(users)) {
+                    for (UserDO user : users) {
+                        if (user != null && user.getId() != null) {
+                            userMap.put(user.getId(), user);
+                        }
+                    }
+                }
+            }
+            comments.forEach(v -> {
                 v.setBookName(bookNameMap.get(v.getBookId()));
-                v.setUserName(userNameMap.get(v.getCreateUserId()));
+                v.setUserName(displayName(userMap.get(v.getCreateUserId())));
             });
         }
         return list;
+    }
+
+    private static String displayName(UserDO user) {
+        if (user != null) {
+            if (StringUtils.hasText(user.getNickName())) {
+                return user.getNickName();
+            }
+            if (StringUtils.hasText(user.getUsername())) {
+                return user.getUsername();
+            }
+        }
+        return "未知用户";
     }
 
     @Override
